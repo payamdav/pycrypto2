@@ -52,4 +52,18 @@ if REPO_PATH not in sys.path:
 
 ---
 
+## Package Documentation
+
+Every package that resides in `packages/` **must** have a corresponding documentation file in `agents/packages/`. The documentation file should be named after the package (e.g., `agents/packages/<package_name>.md`) and must describe the package's purpose, public API, usage examples, and any important conventions or constraints.
+
+It is the **responsibility of the package developer** to create and maintain this documentation file whenever a new package is added or an existing package is significantly changed. Agents and other developers rely on these files as the authoritative reference for each package.
+
+---
+
+## Writing Style
+
+All text written by agents — documents, descriptions, docstrings, comments, READMEs, or any other written output — must be **as short as possible** while remaining meaningful, fully covering the topic, easy to read, and well-structured. No padding, no redundancy, no filler sentences. If something can be said in one sentence instead of three, use one.
+
+---
+
 *End of rules — additional rules will be appended below as needed.*
