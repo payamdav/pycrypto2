@@ -63,6 +63,20 @@ Rule: When instructed to create a script, place it in this folder or the relevan
 
 ---
 
+## @/strategies/
+
+Purpose: Contains individual trading strategies, each isolated in its own sub-folder.
+
+Structure: Each strategy must live in its own dedicated sub-folder under `strategies/`, named after the strategy (e.g., `strategies/mean_reversion/`). Inside that sub-folder, the following file types are permitted:
+
+- **Importable Python modules** — reusable logic, signal generators, position sizing, helpers specific to this strategy.
+- **Executable Python scripts** — standalone scripts for running, backtesting, or operating the strategy.
+- **Jupyter notebooks** — for implementing, proof-of-concept work, studying behavior, and observing results.
+
+Rule: No strategy files may live directly under `strategies/` root. Every strategy must have its own sub-folder. Code that is reusable across multiple strategies belongs in `@/packages/`, not in a strategy sub-folder.
+
+---
+
 ## File Placement Decision Logic
 
 When you are instructed to create a file **without** an explicit filename or path, apply the following rules:
@@ -75,5 +89,6 @@ When you are instructed to create a file **without** an explicit filename or pat
 | Create a script or tool | `@/scripts/<sub_folder>/<meaningful_name>.py` |
 | Create instructions for another agent | `@/ai_chats/<meaningful_name>.md` |
 | Define a general rule or specification | `@/agents/<category>/<meaningful_name>.md` |
+| Create anything related to a specific strategy | `@/strategies/<strategy_name>/` |
 
 Always choose a **meaningful, descriptive filename** that reflects the content or purpose of the file.
