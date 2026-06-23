@@ -6,3 +6,4 @@ venv/
 env/
 ENV/
 gcp_service_account_key.json
+data/
