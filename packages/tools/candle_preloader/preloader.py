@@ -62,16 +62,21 @@ def _months_in_range(
     return result
 
 
-def _fetch_monthly(asset: str, year: str, month: str, monthly_dir: Path) -> Path:
-    path = monthly_dir / f"{asset}_{_RESOLUTION}_{year}_{month}.parquet"
-    if path.exists():
-        return path
+def _fetch_monthly(
+    asset: str, year: str, month: str,
+    monthly_dir: Path, cwd: Path, data_dir: Path,
+) -> Path:
+    fname = f"{asset}_{_RESOLUTION}_{year}_{month}.parquet"
+    for candidate in (cwd / fname, data_dir / fname, monthly_dir / fname):
+        if candidate.exists():
+            return candidate
     monthly_dir.mkdir(parents=True, exist_ok=True)
     url = f"{_HF_BASE}/{asset}/{asset}-1m-{year}-{month}.parquet"
     resp = requests.get(url, timeout=120)
     resp.raise_for_status()
-    path.write_bytes(resp.content)
-    return path
+    out = monthly_dir / fname
+    out.write_bytes(resp.content)
+    return out
 
 
 def preload_candles(
@@ -135,7 +140,7 @@ def preload_candles(
 
         frames: list[pd.DataFrame] = []
         for year, month in needed:
-            monthly_path = _fetch_monthly(asset, year, month, monthly_dir)
+            monthly_path = _fetch_monthly(asset, year, month, monthly_dir, cwd, data_dir)
             frames.append(pd.read_parquet(monthly_path))
 
         df = pd.concat(frames, ignore_index=True).sort_values("ts").reset_index(drop=True)
