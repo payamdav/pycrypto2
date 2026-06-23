@@ -1,8 +1,5 @@
 """Kernel construction for volume-weighted KDE smoothing.
 
-Reproduces the notebook's `make_kernel` (look_back_look_ahead.ipynb, cell 5).
-The numeric core runs jitted with an explicit loop; the public `make_kernel`
-is a thin Python wrapper that maps the kernel-type string to an integer code.
 """
 
 import numpy as np

@@ -1,7 +1,4 @@
 """KDE tools: volume-weighted KDE construction and peak finding.
-
-Reproduces the KDE construction and peak-finding logic from
-notebooks/tests/look_back_look_ahead.ipynb (cells 5 and 6).
 """
 
 from packages.kde_tools.kernels import make_kernel

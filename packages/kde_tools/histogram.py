@@ -1,8 +1,4 @@
 """Volume-weighted histogram over a fixed range (numba-jitted).
-
-Reproduces ``np.histogram(values, bins=bins, range=(range_min, range_max),
-weights=weights)[0]`` with explicit loops, per the KDE building block in
-look_back_look_ahead.ipynb (cell 5).
 """
 
 import numpy as np
@@ -16,6 +12,7 @@ def weighted_histogram(
     bins: int = 200,
     range_min: float = -1.0,
     range_max: float = 1.0,
+    ignore_borders: bool = True,
 ) -> np.ndarray:
     """Weighted histogram of ``values`` over ``[range_min, range_max]``.
 
@@ -37,8 +34,12 @@ def weighted_histogram(
 
     for i in range(values.shape[0]):
         v = values[i]
-        if v < range_min or v > range_max:
-            continue
+        if ignore_borders:
+            if v <= range_min or v >= range_max:
+                continue
+        else:
+            if v < range_min or v > range_max:
+                continue
         idx = int((v - range_min) / bin_width)
         if idx == bins:
             idx = bins - 1

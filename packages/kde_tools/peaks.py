@@ -1,8 +1,4 @@
 """KDE peak finding (scipy-based).
-
-Reproduces the notebook's ``top_kde_peaks`` and the above/below split
-(look_back_look_ahead.ipynb, cell 6). ``find_peaks`` / ``peak_prominences``
-stay in scipy so their semantics match the notebook bit-for-bit.
 """
 
 import numpy as np

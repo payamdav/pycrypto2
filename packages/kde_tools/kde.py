@@ -1,8 +1,4 @@
 """KDE computation: border filter + weighted histogram + kernel convolution.
-
-Reproduces the KDE construction in look_back_look_ahead.ipynb (cell 5):
-volume-weighted histogram of normalized look-back prices, smoothed by a
-same-length convolution with a normalized kernel.
 """
 
 import numpy as np
@@ -30,13 +26,14 @@ def convolve_same(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     full_len = n + m - 1
 
     full = np.zeros(full_len, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)
+    offset = (m - 1) // 2
+
     for i in range(n):
         s = signal[i]
         for j in range(m):
             full[i + j] += s * kernel[j]
 
-    offset = (m - 1) // 2
-    out = np.empty(n, dtype=np.float64)
     for i in range(n):
         out[i] = full[offset + i]
 
@@ -58,7 +55,7 @@ def compute_kde(
     Parameters
     ----------
     scaled_prices : np.ndarray
-        Normalized prices in ``[range_min, range_max]`` (current price -> 0.0).
+        Normalized prices in ``[range_min, range_max]``.
     weights : np.ndarray
         Per-entry weights (e.g. normalized volumes); same length as
         ``scaled_prices``.
@@ -80,20 +77,9 @@ def compute_kde(
     dict
         ``{"kde", "counts", "bin_centers", "bin_width", "kernel", "n_excluded"}``.
     """
-    if ignore_borders:
-        border_mask = (scaled_prices > range_min) & (scaled_prices < range_max)
-        kde_prices = scaled_prices[border_mask]
-        kde_weights = weights[border_mask]
-        n_excluded = int((~border_mask).sum())
-    else:
-        kde_prices = scaled_prices
-        kde_weights = weights
-        n_excluded = 0
+    n_excluded = int(np.sum((scaled_prices <= range_min) | (scaled_prices >= range_max))) if ignore_borders else 0
 
-    kde_prices = np.ascontiguousarray(kde_prices, dtype=np.float64)
-    kde_weights = np.ascontiguousarray(kde_weights, dtype=np.float64)
-
-    counts = weighted_histogram(kde_prices, kde_weights, bins, range_min, range_max)
+    counts = weighted_histogram(scaled_prices, weights, bins, range_min, range_max, ignore_borders)
 
     bin_width = (range_max - range_min) / bins
     bin_centers = range_min + (np.arange(bins) + 0.5) * bin_width
