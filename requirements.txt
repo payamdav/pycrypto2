@@ -4,5 +4,7 @@ google-cloud-storage
 huggingface_hub>=0.23.0
 numba
 numpy>=1.26.0
+pandas
 pyarrow>=15.0.0
 requests>=2.31.0
+scipy
