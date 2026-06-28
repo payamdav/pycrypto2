@@ -2,7 +2,7 @@
 """
 
 import numpy as np
-from scipy.signal import find_peaks, peak_prominences
+from scipy.signal import find_peaks, peak_prominences, peak_widths
 
 
 def top_kde_peaks(
@@ -73,3 +73,36 @@ def kde_peaks_above_below(
         "below_prices": below_prices,
         "below_proms": below_proms,
     }
+
+
+def kde_peak_widths(
+    kde_series: np.ndarray,
+    peak_indices: np.ndarray,
+) -> dict:
+    """Return prominences and widths at rel_height 1.0 and 0.5 for given peaks.
+
+    Parameters
+    ----------
+    kde_series : np.ndarray
+        The KDE array in which *peak_indices* were found.
+    peak_indices : np.ndarray
+        Integer indices of peaks within *kde_series* (as returned by
+        ``scipy.signal.find_peaks``).
+
+    Returns
+    -------
+    dict
+        ``{"proms", "widths_h1", "widths_h05"}`` — all ``np.ndarray`` of
+        length ``len(peak_indices)``, widths in bins.  Empty arrays when
+        *peak_indices* is empty.
+    """
+    if len(peak_indices) == 0:
+        empty = np.array([], dtype=np.float64)
+        return {"proms": empty, "widths_h1": empty, "widths_h05": empty}
+
+    peak_indices = np.asarray(peak_indices, dtype=np.intp)
+    proms = peak_prominences(kde_series, peak_indices)[0]
+    widths_h1 = peak_widths(kde_series, peak_indices, rel_height=1.0)[0]
+    widths_h05 = peak_widths(kde_series, peak_indices, rel_height=0.5)[0]
+
+    return {"proms": proms, "widths_h1": widths_h1, "widths_h05": widths_h05}
