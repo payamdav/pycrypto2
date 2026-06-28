@@ -1,64 +1,87 @@
 # kalman_filter
 
-A high-performance 1D scalar Kalman filter implemented with Numba JIT compilation. Provides both a single-step function and a batch function for processing full sequences.
+High-performance Kalman filter suite (Numba JIT) covering 1D, 2D, and 3D state dimensionalities. Each model provides a stateless step function and a pre-allocated batch function.
 
 ## Import
 
 ```python
-from packages.kalman_filter.kalman_fast import kalman_filter_step, kalman_filter_batch
-```
-
-Both functions are `@njit` compiled — the first call triggers JIT compilation; subsequent calls run at native speed.
-
----
-
-## Functions
-
-### `kalman_filter_step(measurement, prev_estimate, prev_error_cov, process_variance, measurement_variance)`
-
-Executes one predict-update-correct cycle. Stateless — the caller maintains state between steps.
-
-| Parameter | Description |
-|-----------|-------------|
-| `measurement` | Current raw observation `z_k` |
-| `prev_estimate` | Posteriori state estimate from previous step `x̂_{k-1}` |
-| `prev_error_cov` | Posteriori error covariance from previous step `P_{k-1}` |
-| `process_variance` | Process noise `Q` |
-| `measurement_variance` | Measurement noise `R` |
-
-Returns `(current_estimate, current_error_cov)` as `(float, float)`.
-
-```python
-x, P = kalman_filter_step(z[0], x0=0.0, P0=1.0, Q=1e-4, R=1e-2)
-```
-
----
-
-### `kalman_filter_batch(measurements, initial_estimate, initial_error_cov, process_variance, measurement_variance)`
-
-Processes a full 1D array of measurements in a loop, returning pre-allocated output arrays.
-
-| Parameter | Description |
-|-----------|-------------|
-| `measurements` | 1D `np.ndarray` of observations |
-| `initial_estimate` | Initial state guess `x̂_0` |
-| `initial_error_cov` | Initial error covariance `P_0` |
-| `process_variance` | Constant `Q` applied across the batch |
-| `measurement_variance` | Constant `R` applied across the batch |
-
-Returns `(estimates, error_covariances)` — two `np.ndarray` of shape `(n,)`, dtype `float64`.
-
-```python
-estimates, covs = kalman_filter_batch(
-    measurements=prices,
-    initial_estimate=prices[0],
-    initial_error_cov=1.0,
-    process_variance=1e-4,
-    measurement_variance=1e-2,
+from packages.kalman_filter import (
+    kalman_1d_step, kalman_1d_batch,
+    kalman_2d_step, kalman_2d_batch,
+    kalman_3d_step, kalman_3d_batch,
 )
 ```
 
+All six functions are `@njit` compiled — the first call triggers JIT; subsequent calls run at native speed.
+
+---
+
+## 1D Model — `kalman_fast.py`
+
+Scalar filter: state = `value` (float). `F = 1`, `H = 1`.
+
+### `kalman_1d_step(measurement, prev_estimate, prev_error_cov, process_variance, measurement_variance)`
+
+One predict-update-correct cycle. Returns `(current_estimate, current_error_cov)` as `(float, float)`.
+
+### `kalman_1d_batch(measurements, initial_estimate, initial_error_cov, process_variance, measurement_variance)`
+
+Processes a 1D `float64` array of length N. Returns `(estimates, error_covariances)`, both shape `(N,)`.
+
+```python
+estimates, covs = kalman_1d_batch(prices, prices[0], 1.0, 1e-4, 1e-2)
+```
+
+---
+
+## 2D Model — `kalman_2d.py`
+
+Constant-velocity filter: state `x̂ = [value, speed]ᵀ`, shape `(2,1)`.  
+`F = [[1, dt],[0, 1]]`, `H = [[1, 0]]`. `Q` is `(2,2)`, `R` is a scalar float.
+
+### `kalman_2d_step(measurement, prev_state, prev_covariance, process_noise, measurement_variance, dt)`
+
+Returns `(state (2,1), covariance (2,2))`.
+
+### `kalman_2d_batch(measurements, initial_state, initial_covariance, process_noise, measurement_variance, dt)`
+
+Returns `(states (N,2,1), covariances (N,2,2))` as `float64` arrays.
+
+```python
+import numpy as np
+Q = np.eye(2, dtype=np.float64) * 1e-4
+x0 = np.zeros((2, 1), dtype=np.float64)
+P0 = np.eye(2, dtype=np.float64)
+states, covs = kalman_2d_batch(prices, x0, P0, Q, 1e-2, dt=1.0)
+# states[:, 0, 0] → filtered values; states[:, 1, 0] → estimated speed
+```
+
+---
+
+## 3D Model — `kalman_3d.py`
+
+Constant-acceleration filter: state `x̂ = [value, speed, acceleration]ᵀ`, shape `(3,1)`.  
+`F = [[1, dt, 0.5·dt²],[0, 1, dt],[0, 0, 1]]`, `H = [[1, 0, 0]]`. `Q` is `(3,3)`, `R` is a scalar float.
+
+### `kalman_3d_step(measurement, prev_state, prev_covariance, process_noise, measurement_variance, dt)`
+
+Returns `(state (3,1), covariance (3,3))`.
+
+### `kalman_3d_batch(measurements, initial_state, initial_covariance, process_noise, measurement_variance, dt)`
+
+Returns `(states (N,3,1), covariances (N,3,3))` as `float64` arrays.
+
+```python
+Q = np.eye(3, dtype=np.float64) * 1e-4
+x0 = np.zeros((3, 1), dtype=np.float64)
+P0 = np.eye(3, dtype=np.float64)
+states, covs = kalman_3d_batch(prices, x0, P0, Q, 1e-2, dt=1.0)
+# states[:, 0, 0] → value; states[:, 1, 0] → speed; states[:, 2, 0] → acceleration
+```
+
+---
+
 ## Tuning
 
-- **Higher `Q` / lower `R`** → filter trusts measurements more, tracks faster but noisier.
-- **Lower `Q` / higher `R`** → filter trusts the model more, smoother but slower to react.
+- **Higher `Q` / lower `R`** → trusts measurements more; faster tracking, noisier output.
+- **Lower `Q` / higher `R`** → trusts model more; smoother output, slower to react.
