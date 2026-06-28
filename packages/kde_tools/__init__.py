@@ -4,7 +4,7 @@
 from packages.kde_tools.kernels import make_kernel
 from packages.kde_tools.histogram import weighted_histogram
 from packages.kde_tools.kde import convolve_same, compute_kde
-from packages.kde_tools.peaks import top_kde_peaks, kde_peaks_above_below
+from packages.kde_tools.peaks import top_kde_peaks, kde_peaks_above_below, kde_peak_widths
 
 __all__ = [
     "make_kernel",
@@ -13,4 +13,5 @@ __all__ = [
     "compute_kde",
     "top_kde_peaks",
     "kde_peaks_above_below",
+    "kde_peak_widths",
 ]

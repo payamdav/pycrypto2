@@ -15,6 +15,7 @@
 | `compute_kde`           | Orchestrator: border filter + weighted histogram + kernel convolution       |
 | `top_kde_peaks`         | Top-`n` highest-prominence peaks via `scipy.signal`                         |
 | `kde_peaks_above_below` | Top-`n` KDE peaks above and below the current price (primary entry point)   |
+| `kde_peak_widths`       | Prominences and widths (at `rel_height` 1.0 and 0.5) for selected peak indices |
 
 This package extracts **only** the KDE construction and peak-finding logic. It does
 **not** load data, normalize prices, compute DVR oscillators, or plot — those remain
@@ -220,6 +221,33 @@ price." `split_at` is the current price in normalized space (defaults to `0.0`).
     "below_prices": ...,  "below_proms": ...,   # <  split_at, top-n by prominence
 }
 ```
+
+---
+
+## `kde_peak_widths`
+
+```python
+def kde_peak_widths(
+    kde_series: np.ndarray,
+    peak_indices: np.ndarray,
+) -> dict:
+```
+
+Given a KDE array and the integer indices of selected peaks within it (as
+returned by `scipy.signal.find_peaks`), compute prominences and peak widths
+at two relative heights.
+
+**Returns** a dict:
+
+| Key         | Type / shape              | Description                                            |
+|-------------|---------------------------|--------------------------------------------------------|
+| `proms`     | `np.float64`, `(n,)`      | Peak prominences via `peak_prominences`                |
+| `widths_h1` | `np.float64`, `(n,)`      | Peak widths at `rel_height=1.0`, in bins               |
+| `widths_h05`| `np.float64`, `(n,)`      | Peak widths at `rel_height=0.5`, in bins               |
+
+All three arrays are empty when `peak_indices` is empty.
+Width values are in **bins**; multiply by `bin_width` to convert to
+normalized-price units.
 
 ---
 
