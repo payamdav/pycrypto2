@@ -5,7 +5,7 @@ A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr
 ```
 
 Individual imports:
@@ -17,6 +17,7 @@ from packages.indicators.vwma import vwma
 from packages.indicators.rsi import rsi_1_1
 from packages.indicators.stddev import stddev
 from packages.indicators.rolling_robust_z_score import rolling_robust_z_score
+from packages.indicators.rolling_robust_z_score import rolling_median_iqr
 ```
 
 ## Conventions
@@ -94,11 +95,28 @@ out = rolling_robust_z_score(prices, window=60)
 
 ---
 
+### `rolling_median_iqr(array, window=60)`
+Returns the rolling median and IQR for each index as a 2-column array.
+
+- **Output:** shape `(n, 2)`, `dtype=float64`. `out[i, 0]` = median, `out[i, 1]` = IQR.
+- **Window:** left look-back window `array[max(0, i-window+1) : i+1]`, effective length `m = min(i+1, window)`.
+- **Partial early windows:** every index gets a real computed value — no `0.0` padding (deviation from the package-wide convention). `out[0] == [array[0], 0.0]`.
+- **Quartile convention:** `Q1 = sorted[m//4]`, `Q3 = sorted[3*m//4]` — identical to `rolling_robust_z_score`.
+- Empty input returns shape `(0, 2)`.
+
+```python
+out = rolling_median_iqr(prices, window=60)
+medians = out[:, 0]
+iqrs    = out[:, 1]
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
@@ -110,4 +128,5 @@ vwma_out  = vwma(prices, volume, window=20)
 rsi_out   = rsi_1_1(prices, window=14)
 std_out   = stddev(prices, window=20)
 rzs_out   = rolling_robust_z_score(prices, window=60)
+rmi_out   = rolling_median_iqr(prices, window=60)   # shape (200, 2)
 ```

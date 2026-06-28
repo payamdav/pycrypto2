@@ -3,6 +3,45 @@ import numpy as np
 
 
 @nb.njit(inline='always')
+def rolling_median_iqr(array, window=60):
+    """Return (median, IQR) for each index over a left look-back window.
+
+    Output shape (n, 2), dtype float64. out[i, 0]=median, out[i, 1]=IQR.
+    Window for index i: array[max(0, i-window+1) : i+1], length m=min(i+1, window).
+    Partial early windows are NOT padded with 0.0 — every index gets a real value.
+    For m==1: median=array[i], IQR=0.0. Empty input returns shape (0, 2).
+    Quartile convention: Q1=sorted[m//4], Q3=sorted[3*m//4] (matches rolling_robust_z_score).
+    """
+    n = len(array)
+    out = np.empty((n, 2), dtype=np.float64)
+    if n == 0:
+        return out
+
+    buf = np.empty(window, dtype=np.float64)
+
+    for i in range(n):
+        m = min(i + 1, window)
+        start = i - m + 1
+        for k in range(m):
+            buf[k] = array[start + k]
+        for k in range(1, m):
+            key = buf[k]
+            j = k - 1
+            while j >= 0 and buf[j] > key:
+                buf[j + 1] = buf[j]
+                j -= 1
+            buf[j + 1] = key
+        if m % 2 == 1:
+            median = buf[m // 2]
+        else:
+            median = (buf[m // 2 - 1] + buf[m // 2]) / 2.0
+        out[i, 0] = median
+        out[i, 1] = buf[3 * m // 4] - buf[m // 4]
+
+    return out
+
+
+@nb.njit(inline='always')
 def rolling_robust_z_score(array, window=60):
     n = len(array)
     out = np.zeros(n, dtype=np.float64)
