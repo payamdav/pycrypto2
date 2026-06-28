@@ -6,8 +6,12 @@ A collection of utility sub-packages. Currently contains `google_cloud_storage_t
 
 ```
 packages/tools/
-└── google_cloud_storage_tools/
-    └── gcs_tools.py
+├── google_cloud_storage_tools/
+│   └── gcs_tools.py
+├── candle_preloader/
+│   └── preloader.py
+└── metrics_cache/
+    └── metrics_cache.py
 ```
 
 ## Import

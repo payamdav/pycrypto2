@@ -5,7 +5,7 @@ A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev
 ```
 
 Individual imports:
@@ -18,6 +18,7 @@ from packages.indicators.rsi import rsi_1_1
 from packages.indicators.stddev import stddev
 from packages.indicators.rolling_robust_z_score import rolling_robust_z_score
 from packages.indicators.rolling_robust_z_score import rolling_median_iqr
+from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 ```
 
 ## Conventions
@@ -112,11 +113,26 @@ iqrs    = out[:, 1]
 
 ---
 
+---
+
+### `rolling_mean_stddev(array, window=60)`
+Rolling mean and population standard deviation over a left look-back window. Returns `(n, 2)` float64 array: `out[i, 0]` = mean, `out[i, 1]` = stddev.
+Window for index `i`: `array[max(0, i-window+1) : i+1]`, effective length `m = min(i+1, window)`.
+Partial early windows are NOT padded — every index gets a real value (deviates from package-wide `0.0` convention). Stddev is population (divide by `m`).
+
+```python
+out = rolling_mean_stddev(prices, window=60)
+means   = out[:, 0]
+stddevs = out[:, 1]
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
@@ -129,4 +145,5 @@ rsi_out   = rsi_1_1(prices, window=14)
 std_out   = stddev(prices, window=20)
 rzs_out   = rolling_robust_z_score(prices, window=60)
 rmi_out   = rolling_median_iqr(prices, window=60)   # shape (200, 2)
+rms_out   = rolling_mean_stddev(prices, window=60)  # shape (200, 2)
 ```
