@@ -5,6 +5,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from packages.kalman_filter import (
+    kalman_1d_batch,
+    kalman_2d_batch,
+    kalman_3d_batch,
+)
+
 
 def _gather_peaks(hvn: dict) -> list:
     poc = hvn.get("poc")
@@ -193,8 +199,15 @@ def draw_chart_vp(data: dict) -> go.Figure:
     return fig
 
 
-def draw_chart_vp_continued_width(data: dict) -> go.Figure:
-    """VP chart variant: no width_h1, width_h05 continued into right panel, z-scored volume axis."""
+def _add_continued_width_content(
+    fig: go.Figure, data: dict, _show, price_row: int, price_col: int
+) -> tuple:
+    """Add the continued-width VP content (left panel + price panel) to `fig`.
+
+    Draws the z-scored histogram/KDE and peak lines on the left panel (1, 1), the
+    look-back/look-ahead paths, continued width_h05 bands, x=1.0 separator and y=0
+    line on the price panel (price_row, price_col). Returns (peaks_df, metrics_df).
+    """
     lb_x = data["lb_x"]
     la_x = data["la_x"]
     lb_p = data["lb_p"]
@@ -205,7 +218,6 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
     bin_width = data["bin_width"]
     hvn = data["hvn"]
     metrics = data["metrics"]
-    current_price = data["current_price"]
 
     v_median = float(metrics["v_median"])
     v_iqr = float(metrics["v_iqr"])
@@ -217,14 +229,6 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
 
     vp_hist_z = z_score(vp_hist)
     vp_kde_z = z_score(vp_kde)
-
-    fig = make_subplots(
-        rows=1, cols=2,
-        shared_yaxes=True,
-        column_widths=[0.25, 0.75],
-    )
-
-    _show = _make_show_fn()
 
     def _peak_height_z(price: float) -> float:
         idx = int(np.argmin(np.abs(bin_centers - price)))
@@ -263,7 +267,7 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
             showlegend=_show(group),
         ), row=1, col=1)
 
-    # width_h05 rectangles: left panel + right panel (no width_h1)
+    # width_h05 rectangles: left panel + price panel (no width_h1)
     x_right_start = float(lb_x[0])
     x_right_end = float(la_x[-1])
 
@@ -286,7 +290,7 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
             showlegend=_show("width_h05"),
         ), row=1, col=1)
 
-        # Right panel rectangle (same band, full x range)
+        # Price panel rectangle (same band, full x range)
         fig.add_trace(go.Scatter(
             x=[x_right_start, x_right_end, x_right_end, x_right_start, x_right_start],
             y=[y0, y0, y1, y1, y0],
@@ -294,30 +298,30 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
             fillcolor=color_h05,
             name="width_h05", legendgroup="width_h05",
             showlegend=False,
-        ), row=1, col=2)
+        ), row=price_row, col=price_col)
 
-    # Main panel – look-back
+    # Price panel – look-back
     fig.add_trace(go.Scatter(
         x=lb_x, y=lb_p, mode="lines",
         line=dict(color="steelblue", width=1.5),
         name="look-back", legendgroup="look-back",
         showlegend=_show("look-back"),
-    ), row=1, col=2)
+    ), row=price_row, col=price_col)
 
-    # Main panel – look-ahead
+    # Price panel – look-ahead
     fig.add_trace(go.Scatter(
         x=la_x, y=la_p, mode="lines",
         line=dict(color="seagreen", width=1.5),
         name="look-ahead", legendgroup="look-ahead",
         showlegend=_show("look-ahead"),
-    ), row=1, col=2)
+    ), row=price_row, col=price_col)
 
     # Vertical separator at x=1.0 (current time)
     fig.add_shape(
         type="line",
         x0=1.0, x1=1.0, y0=-1, y1=1,
         line=dict(color="gray", width=1, dash="dash"),
-        row=1, col=2,
+        row=price_row, col=price_col,
     )
 
     # Horizontal reference at y=0 (current price)
@@ -325,19 +329,10 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
         type="line",
         x0=x_right_start, x1=x_right_end, y0=0, y1=0,
         line=dict(color="black", width=1, dash="dot"),
-        row=1, col=2,
+        row=price_row, col=price_col,
     )
 
-    fig.update_yaxes(range=[-1, 1])
     fig.update_xaxes(title_text="robust z-score of volume", row=1, col=1)
-    fig.update_layout(
-        title=(
-            f"{data.get('asset', '').upper()} | {data.get('datetime', '')} "
-            f"| price={current_price:.2f}"
-        ),
-        height=600,
-        legend=dict(groupclick="togglegroup"),
-    )
 
     # --- Tables ---
     peak_rows = []
@@ -357,6 +352,204 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
         })
     peaks_df = pd.DataFrame(peak_rows)
     metrics_df = pd.DataFrame(list(metrics.items()), columns=["name", "value"])
+    return peaks_df, metrics_df
+
+
+def _chart_title(data: dict) -> str:
+    return (
+        f"{data.get('asset', '').upper()} | {data.get('datetime', '')} "
+        f"| price={float(data['current_price']):.2f}"
+    )
+
+
+def draw_chart_vp_continued_width(data: dict) -> go.Figure:
+    """VP chart variant: no width_h1, width_h05 continued into right panel, z-scored volume axis."""
+    fig = make_subplots(
+        rows=1, cols=2,
+        shared_yaxes=True,
+        column_widths=[0.25, 0.75],
+    )
+
+    _show = _make_show_fn()
+    peaks_df, metrics_df = _add_continued_width_content(fig, data, _show, 1, 2)
+
+    fig.update_yaxes(range=[-1, 1])
+    fig.update_layout(
+        title=_chart_title(data),
+        height=600,
+        legend=dict(groupclick="togglegroup"),
+    )
+
+    fig.show()
+    _display_dfs(peaks_df, metrics_df)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Kalman-smoothed variants
+# ---------------------------------------------------------------------------
+
+def _kalman_measurements(data: dict) -> np.ndarray:
+    """Contiguous float64 look-back curve (unclipped) for the Kalman batch filters."""
+    return np.ascontiguousarray(data["lb_pnc"], dtype=np.float64)
+
+
+def _coerce_process_noise(process_noise, dim: int, default_scalar: float = 0.03):
+    """Build an (dim, dim) Q matrix from None / scalar / matrix input."""
+    if process_noise is None:
+        return np.eye(dim, dtype=np.float64) * default_scalar
+    if np.isscalar(process_noise):
+        return np.eye(dim, dtype=np.float64) * float(process_noise)
+    return np.asarray(process_noise, dtype=np.float64)
+
+
+def _add_kalman_overlay(fig: go.Figure, lb_x, value, _show, price_row: int, price_col: int):
+    """Clip the smoothed value to [-1, 1] and draw it on the price panel."""
+    smoothed = np.clip(value, -1.0, 1.0)
+    fig.add_trace(go.Scatter(
+        x=lb_x, y=smoothed, mode="lines",
+        line=dict(color="purple", width=2),
+        name="kalman", legendgroup="kalman",
+        showlegend=_show("kalman"),
+    ), row=price_row, col=price_col)
+
+
+def draw_chart_vp_continued_width_kalman_1d(
+    data: dict, measurement_variance: float = 1.0, process_noise=None
+) -> go.Figure:
+    """continued_width chart + clipped 1D-Kalman smoothing of lb_pnc on the price panel."""
+    if process_noise is None:
+        process_noise = 0.03
+
+    m = _kalman_measurements(data)
+    estimates, _ = kalman_1d_batch(
+        m, float(m[0]), 1.0, float(process_noise), float(measurement_variance)
+    )
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        shared_yaxes=True,
+        column_widths=[0.25, 0.75],
+    )
+    _show = _make_show_fn()
+    peaks_df, metrics_df = _add_continued_width_content(fig, data, _show, 1, 2)
+    _add_kalman_overlay(fig, data["lb_x"], estimates, _show, 1, 2)
+
+    fig.update_yaxes(range=[-1, 1])
+    fig.update_layout(
+        title=_chart_title(data),
+        height=600,
+        legend=dict(groupclick="togglegroup"),
+    )
+
+    fig.show()
+    _display_dfs(peaks_df, metrics_df)
+    return fig
+
+
+def draw_chart_vp_continued_width_kalman_2d(
+    data: dict, measurement_variance: float = 1.0, process_noise=None
+) -> go.Figure:
+    """continued_width chart + 2D-Kalman smoothing, with a speed subchart sharing lb_x."""
+    Q = _coerce_process_noise(process_noise, 2)
+
+    m = _kalman_measurements(data)
+    x0 = np.array([[m[0]], [0.0]], dtype=np.float64)
+    P0 = np.eye(2, dtype=np.float64)
+    states, _ = kalman_2d_batch(m, x0, P0, Q, float(measurement_variance), 1.0)
+    value = states[:, 0, 0]
+    speed = states[:, 1, 0]
+
+    fig = make_subplots(
+        rows=2, cols=2,
+        shared_yaxes=True,
+        shared_xaxes=True,
+        column_widths=[0.25, 0.75],
+        row_heights=[0.75, 0.25],
+        vertical_spacing=0.04,
+        specs=[[{}, {}], [None, {}]],
+    )
+    _show = _make_show_fn()
+    peaks_df, metrics_df = _add_continued_width_content(fig, data, _show, 1, 2)
+    _add_kalman_overlay(fig, data["lb_x"], value, _show, 1, 2)
+
+    # Speed subchart (shares x with the price panel)
+    fig.add_trace(go.Scatter(
+        x=data["lb_x"], y=speed, mode="lines",
+        line=dict(color="teal", width=1.5),
+        name="speed", legendgroup="speed",
+        showlegend=_show("speed"),
+    ), row=2, col=2)
+    fig.add_vline(x=1.0, line=dict(color="gray", width=1, dash="dash"), row=2, col=2)
+
+    fig.update_yaxes(range=[-1, 1], row=1, col=1)
+    fig.update_yaxes(range=[-1, 1], row=1, col=2)
+    fig.update_yaxes(title_text="speed", row=2, col=2)
+    fig.update_layout(
+        title=_chart_title(data),
+        height=750,
+        legend=dict(groupclick="togglegroup"),
+    )
+
+    fig.show()
+    _display_dfs(peaks_df, metrics_df)
+    return fig
+
+
+def draw_chart_vp_continued_width_kalman_3d(
+    data: dict, measurement_variance: float = 1.0, process_noise=None
+) -> go.Figure:
+    """continued_width chart + 3D-Kalman smoothing, with speed & acceleration subcharts sharing lb_x."""
+    Q = _coerce_process_noise(process_noise, 3)
+
+    m = _kalman_measurements(data)
+    x0 = np.array([[m[0]], [0.0], [0.0]], dtype=np.float64)
+    P0 = np.eye(3, dtype=np.float64)
+    states, _ = kalman_3d_batch(m, x0, P0, Q, float(measurement_variance), 1.0)
+    value = states[:, 0, 0]
+    speed = states[:, 1, 0]
+    accel = states[:, 2, 0]
+
+    fig = make_subplots(
+        rows=3, cols=2,
+        shared_yaxes=True,
+        shared_xaxes=True,
+        column_widths=[0.25, 0.75],
+        row_heights=[0.6, 0.2, 0.2],
+        vertical_spacing=0.04,
+        specs=[[{}, {}], [None, {}], [None, {}]],
+    )
+    _show = _make_show_fn()
+    peaks_df, metrics_df = _add_continued_width_content(fig, data, _show, 1, 2)
+    _add_kalman_overlay(fig, data["lb_x"], value, _show, 1, 2)
+
+    # Speed subchart
+    fig.add_trace(go.Scatter(
+        x=data["lb_x"], y=speed, mode="lines",
+        line=dict(color="teal", width=1.5),
+        name="speed", legendgroup="speed",
+        showlegend=_show("speed"),
+    ), row=2, col=2)
+    fig.add_vline(x=1.0, line=dict(color="gray", width=1, dash="dash"), row=2, col=2)
+
+    # Acceleration subchart
+    fig.add_trace(go.Scatter(
+        x=data["lb_x"], y=accel, mode="lines",
+        line=dict(color="indianred", width=1.5),
+        name="acceleration", legendgroup="acceleration",
+        showlegend=_show("acceleration"),
+    ), row=3, col=2)
+    fig.add_vline(x=1.0, line=dict(color="gray", width=1, dash="dash"), row=3, col=2)
+
+    fig.update_yaxes(range=[-1, 1], row=1, col=1)
+    fig.update_yaxes(range=[-1, 1], row=1, col=2)
+    fig.update_yaxes(title_text="speed", row=2, col=2)
+    fig.update_yaxes(title_text="acceleration", row=3, col=2)
+    fig.update_layout(
+        title=_chart_title(data),
+        height=850,
+        legend=dict(groupclick="togglegroup"),
+    )
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
