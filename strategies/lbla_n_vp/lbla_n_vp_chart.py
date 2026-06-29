@@ -65,31 +65,27 @@ def draw_chart_vp(data: dict) -> go.Figure:
         + [("below", p) for p in below]
     )
 
-    x_max = float(np.max(vp_kde)) if len(vp_kde) > 0 else 1.0
-
-    # Peak horizontal lines
+    # Peak horizontal lines — each spans 0 → its own peak height
     for label, peak in all_peaks:
         price = peak["price"]
+        h = _peak_height(price)
         is_poc = label == "POC"
         group = "POC" if is_poc else "peaks (lines)"
         color = "crimson" if is_poc else "darkorange"
         fig.add_trace(go.Scatter(
-            x=[0, x_max], y=[price, price], mode="lines",
+            x=[0, h], y=[price, price], mode="lines",
             line=dict(color=color, width=1.5, dash="dot"),
             name=group, legendgroup=group,
             showlegend=_show(group),
         ), row=1, col=1)
 
-    # Width rectangles – h1 then h05 per peak so h05 renders on top
+    # Width rectangles — all width_h1 first (lighter, behind), then all width_h05 on top
     for label, peak in all_peaks:
         price = peak["price"]
         h = _peak_height(price)
         w1 = float(peak["width_h1"]) * bin_width
-        w05 = float(peak["width_h05"]) * bin_width
         is_poc = label == "POC"
         color_h1 = "rgba(220,20,60,0.2)" if is_poc else "rgba(255,140,0,0.2)"
-        color_h05 = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
-
         if w1 > 0:
             y0, y1 = price - w1 / 2, price + w1 / 2
             fig.add_trace(go.Scatter(
@@ -100,6 +96,12 @@ def draw_chart_vp(data: dict) -> go.Figure:
                 showlegend=_show("width_h1"),
             ), row=1, col=1)
 
+    for label, peak in all_peaks:
+        price = peak["price"]
+        h = _peak_height(price)
+        w05 = float(peak["width_h05"]) * bin_width
+        is_poc = label == "POC"
+        color_h05 = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
         if w05 > 0:
             y0, y1 = price - w05 / 2, price + w05 / 2
             fig.add_trace(go.Scatter(
@@ -149,7 +151,7 @@ def draw_chart_vp(data: dict) -> go.Figure:
             f"| price={current_price:.2f}"
         ),
         height=600,
-        legend=dict(groupclick="toggleitem"),
+        legend=dict(groupclick="togglegroup"),
     )
 
     # --- Tables ---
