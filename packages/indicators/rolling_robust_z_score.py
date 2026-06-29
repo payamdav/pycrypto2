@@ -19,24 +19,44 @@ def rolling_median_iqr(array, window=60):
 
     buf = np.empty(window, dtype=np.float64)
 
-    for i in range(n):
-        m = min(i + 1, window)
-        start = i - m + 1
-        for k in range(m):
-            buf[k] = array[start + k]
-        for k in range(1, m):
-            key = buf[k]
-            j = k - 1
-            while j >= 0 and buf[j] > key:
-                buf[j + 1] = buf[j]
-                j -= 1
-            buf[j + 1] = key
+    # Growing phase: maintain sorted buf[0:m] as m grows from 1 to min(window, n)
+    for i in range(min(window, n)):
+        m = i + 1
+        buf[i] = array[i]
+        j = i
+        while j > 0 and buf[j] < buf[j - 1]:
+            tmp = buf[j]; buf[j] = buf[j - 1]; buf[j - 1] = tmp
+            j -= 1
         if m % 2 == 1:
             median = buf[m // 2]
         else:
             median = (buf[m // 2 - 1] + buf[m // 2]) / 2.0
         out[i, 0] = median
         out[i, 1] = buf[3 * m // 4] - buf[m // 4]
+
+    # Sliding phase: buf is full at size window; remove outgoing, insert incoming
+    for i in range(window, n):
+        old_val = array[i - window]
+        new_val = array[i]
+
+        k = 0
+        while k < window and buf[k] != old_val:
+            k += 1
+
+        buf[k] = new_val
+        while k > 0 and buf[k] < buf[k - 1]:
+            tmp = buf[k]; buf[k] = buf[k - 1]; buf[k - 1] = tmp
+            k -= 1
+        while k < window - 1 and buf[k] > buf[k + 1]:
+            tmp = buf[k]; buf[k] = buf[k + 1]; buf[k + 1] = tmp
+            k += 1
+
+        if window % 2 == 1:
+            median = buf[window // 2]
+        else:
+            median = (buf[window // 2 - 1] + buf[window // 2]) / 2.0
+        out[i, 0] = median
+        out[i, 1] = buf[3 * window // 4] - buf[window // 4]
 
     return out
 
