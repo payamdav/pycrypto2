@@ -65,18 +65,20 @@ A **peak record** is `{"price": float, "prominence": float, "width_h1": float,
   `look-back`, `look-ahead`, `POC`, `peaks (lines)`, `width_h1`, `width_h05`.
 
 ### 4.2 Layout
-- One figure, shared **price (y) axis** between the VP panel and the main panel:
+- The **chart** is one Plotly figure with a shared **price (y) axis** between the VP
+  panel and the main panel:
   - **Left panel** = volume profile (price on y, volume/density on x).
   - **Right panel** = price-vs-time (wider; e.g. width ratio ~1:3).
-- Below the panels, **two tables** (see 4.5). Implement as Plotly `Table` traces in
-  the same `make_subplots` grid so the output is one self-contained figure.
-- Y axis fixed to `[-1, 1]` on the price panels.
+  - Build with `make_subplots(rows=1, cols=2, shared_yaxes=True)`.
+- The **tables are NOT part of the figure.** Render them separately as pandas
+  DataFrames displayed below the chart in the notebook (see 4.5).
+- Y axis fixed to `[-1, 1]` on both price panels.
 
 ### 4.3 Main panel (price vs time)
 - Plot `lb_p` vs `lb_x` (look-back) and `la_p` vs `la_x` (look-ahead) as two lines.
-- **Vertical separator at current time** marking past↔future (see Open Question 1
-  for x-axis origin; default: re-center so current time = `0`).
-- **Horizontal line at `y=0`** = current price.
+- Use the raw `lb_x`/`la_x` values **unchanged** (no shift).
+- **Vertical separator at `x = 1.0`** = current time, marking past↔future.
+- **Horizontal line at `y = 0`** = current price.
 - Y range `[-1, 1]`.
 
 ### 4.4 Left panel (volume profile, shared y = price)
@@ -85,27 +87,36 @@ A **peak record** is `{"price": float, "prominence": float, "width_h1": float,
 - **`vp_kde` line** drawn over the histogram (sharper color).
 - **7 HVN peaks** = `hvn["poc"]` + up to 3 `hvn["above"]` + up to 3 `hvn["below"]`
   (skip `None`/missing): one **horizontal line** at each peak's `price`.
-- For each peak, two rectangles giving the peak's price band:
-  - `width_h1` rectangle: vertical extent = `width_h1 * bin_width`, centered on the
-    peak price; lighter color.
-  - `width_h05` rectangle: vertical extent = `width_h05 * bin_width`, centered on the
-    peak price; **drawn over** the `width_h1` rectangle in a **sharper color**.
-  - Default horizontal extent = full VP panel width (see Open Question 3).
+- **Peak height** = the KDE value at the peak price = `vp_kde[idx]`, where `idx` is
+  the bin whose center equals the peak `price`
+  (`idx = argmin(abs(bin_centers - price))`).
+- For each peak, two rectangles. In this panel **x = density** and **y = price**, so:
+  - **x-extent (the rectangle's "height")** = `0 → peak height` (the KDE value),
+    identical for both rectangles of a peak.
+  - **y-extent (the rectangle's "width")** = centered on the peak `price`:
+    - `width_h1` rectangle: y from `price - (width_h1*bin_width)/2` to
+      `price + (width_h1*bin_width)/2`; lighter color.
+    - `width_h05` rectangle: thinner band `width_h05*bin_width` centered on `price`;
+      **drawn over** the `width_h1` rectangle in a **sharper color**.
   - Distinguish POC visually from the other six peaks (e.g. distinct color/label).
 
-### 4.5 Tables (bottom of figure)
+### 4.5 Tables (pandas DataFrames, printed below the chart)
 - **Peaks table**: one row per displayed peak with columns
-  `price`, `prominence`, `width_h1`, `width_h05`. Include a label column marking POC
-  vs above/below. Use price values directly; widths may be shown in bins and/or
-  normalized-price units (state which in the header).
+  `label` (POC / above / below), `price`, `height` (KDE value at peak),
+  `prominence`, `width_h1`, `width_h05`. State width units in the header (default:
+  normalized-price units = `width × bin_width`).
 - **Metrics table**: every key/value in `data["metrics"]` (all cached metrics
   appended by `append_cached_metrics` for this candle), two columns name/value.
+- Display both via the notebook (e.g. `display(df)` / last-expression render); do
+  not embed them in the Plotly figure.
 
 ### 4.6 Function contract
 - Signature: `def draw_chart_vp(data: dict) -> go.Figure:`.
-- Build and return the Figure; also call `fig.show()` so it renders when invoked
-  from a Colab cell. Returning the figure lets callers further customize.
-- Read only from `data`; do not mutate it; do not recompute pipeline values.
+- Show the chart (`fig.show()`) and render the two DataFrames so all three outputs
+  appear when called from a Colab cell; return the Figure for further customization.
+- Read only from `data`; do not mutate it; do not recompute pipeline values (peak
+  height lookup from `vp_kde`/`bin_centers` is allowed — it is a read, not a
+  recompute).
 - Handle empty/`None` peak lists gracefully (POC may exist with no above/below).
 
 ### 4.7 Notebook changes (`lbla_n_vp.ipynb`)
@@ -135,42 +146,44 @@ A **peak record** is `{"price": float, "prominence": float, "width_h1": float,
 
 ## 7. Acceptance criteria
 - `strategies/lbla_n_vp/lbla_n_vp_chart.py` defines `draw_chart_vp(data)` returning
-  a `go.Figure` and showing it.
-- Running the two new notebook cells top-to-bottom renders one interactive figure in
-  Colab with: price-vs-time main panel (y∈[-1,1]); shared-axis VP panel with
-  low-opacity histogram + KDE overlay; vertical current-time separator; horizontal
-  current-price line; 7 (or fewer) peak lines with `width_h1`/`width_h05` rectangles
-  (h05 over h1, sharper); peaks table; metrics table.
+  a `go.Figure`, showing it, and rendering the two DataFrames.
+- Running the two new notebook cells top-to-bottom produces, in Colab: one
+  interactive Plotly figure with a price-vs-time main panel (y∈[-1,1]); a
+  shared-axis VP panel with low-opacity histogram + KDE overlay; vertical
+  separator at `x=1.0`; horizontal current-price line at `y=0`; up to 7 peak lines,
+  each with `width_h1`/`width_h05` rectangles (x: 0→peak height, y: width band
+  centered on price; h05 over h1, sharper) — followed by the peaks DataFrame and
+  metrics DataFrame printed below the chart.
+- Peaks table includes a `height` column (KDE value at the peak).
 - Legend clicks toggle drawing layers on/off.
 - `plotly` added to both `requirements.txt` and the notebook `%pip install` cell.
 - No exception when a peak list is empty or POC is the only peak.
 
-## 8. Open questions (defaults chosen; confirm if wrong)
-1. **X-axis origin.** Request says "vertical line at **0** of x axis," but `lb_x`/`la_x`
-   put the past/future boundary at `1.0`. **Default: re-center the time axis so
-   current time = `0`** (look-back negative, look-ahead positive) and draw the
-   vertical line at `x=0`. Alternative: keep raw `lb_x`/`la_x` and place the line at
-   `1.0`.
-2. **"0 on x axis shows the current price."** Read as a wording mix-up: the
-   **horizontal** line at `y=0` shows current price; the **vertical** line at current
-   time splits past/future. Confirm.
-3. **Width-rectangle horizontal extent.** Default: span the full VP panel width.
-   Alternative: extend only from `0` to each peak's KDE value.
-4. **Width units in the peaks table.** Default: show normalized-price units
-   (`width × bin_width`); optionally also raw bins. Confirm preference.
+## 8. Resolved decisions (from user)
+1. **X-axis:** use raw `lb_x`/`la_x` (no shift); vertical past/future separator at
+   `x = 1.0` (current time). Current price shown by the horizontal line at `y = 0`.
+2. **Charting library:** Plotly.
+3. **Tables:** rendered as pandas DataFrames printed below the chart — NOT embedded
+   in the Plotly figure.
+4. **Peak rectangles:** centered on the peak `price` along the price (y) axis with
+   thickness = `width × bin_width`; length along the density (x) axis = `0 → peak
+   height`, where peak height = KDE value at the peak price (`vp_kde[idx]`).
+5. **Peaks table:** include the peak `height` column.
 
 ## 9. Notes for the downstream coding agent
 - Read all of `/agents/` before coding (`CLAUDE.md`, `AGENTS.md`).
-- Build the grid with `make_subplots(rows=2, cols=2, shared_yaxes=True,
-  column_widths=[~0.25, ~0.75], specs=[[{}, {}], [{"type":"table"}, {"type":"table"}]])`
-  (or a layout that places the two tables beneath the two panels).
+- Build the chart with `make_subplots(rows=1, cols=2, shared_yaxes=True,
+  column_widths=[~0.25, ~0.75])`. Tables are separate DataFrames, not subplots.
 - Reverse the VP panel's x-axis (or not) so the histogram reads naturally toward the
   shared price axis; keep both panels on the same y so peak lines align with the
   price path.
-- For width rectangles use `fig.add_shape` (rect) or bar traces with
-  `legendgroup`; ensure `width_h05` is added **after** `width_h1` so it renders on
-  top.
+- For peak rectangles use `fig.add_shape` (rect) with `x0=0, x1=peak_height,
+  y0=price-w/2, y1=price+w/2`; add the `width_h05` rect **after** `width_h1` so it
+  renders on top. (Shapes are not legend-toggleable; if the width layers must be
+  toggleable, draw them as `go.Scatter` filled rectangles with `legendgroup`.)
+- Compute peak height via `idx = argmin(abs(bin_centers - price))` →
+  `vp_kde[idx]`; reuse the same `idx` for consistency.
 - Use `bin_centers` (not bin edges) for histogram/KDE y-positions to match
   `kde_tools` geometry.
-- Keep the function pure w.r.t. `data` (read-only) and return the figure.
+- Keep the function read-only w.r.t. `data` and return the figure.
 - Mirror the existing notebook's input-parameter cell style when adding cells.
