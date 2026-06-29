@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from scipy.signal import find_peaks, peak_prominences
 
+# Module-level metrics-cache: keyed by asset, populated on first call per asset.
+_metrics_df_cache: dict[str, pd.DataFrame] = {}
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -32,6 +34,10 @@ def lookback_lookahead_normalized_vp(
     Parameters match the spec; all inputs are stored verbatim in the returned
     *data* dict along with every intermediate array, KDE/VP results, HVN peaks,
     and per-function + total wall-clock timing.
+
+    *datetime* is the **current time**, not the candle start time — it is
+    60 000 ms ahead of the last candle; lb_la_n_base derives
+    ``last_candle_ts = current_ts - 60_000``.
     """
     data = {
         "asset": asset,
@@ -174,8 +180,10 @@ def append_cached_metrics(data: dict) -> dict:
             "metrics_cache_volume_median_iqr, and metrics_cache_volume_mean_stddev."
         )
 
-    df = pd.read_parquet(cache_path)
-    row = df[df["ts"] == last_candle_ts]
+    if asset not in _metrics_df_cache:
+        _metrics_df_cache[asset] = pd.read_parquet(cache_path)
+    df = _metrics_df_cache[asset]
+    row = df[df["ts"] == pd.to_datetime(last_candle_ts, unit="ms")]
     if row.empty:
         raise ValueError(
             f"last_candle_ts={last_candle_ts} not found in metrics cache "
