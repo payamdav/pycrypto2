@@ -13,9 +13,9 @@
 | `weighted_histogram`    | Numba-jitted volume-weighted histogram over a fixed range                   |
 | `convolve_same`         | Numba-jitted `np.convolve(..., mode="same")` reimplementation               |
 | `compute_kde`           | Orchestrator: border filter + weighted histogram + kernel convolution       |
-| `top_kde_peaks`         | Top-`n` highest-prominence peaks via `scipy.signal`                         |
+| `top_kde_peaks`         | Top-`n` peaks (by prominence or height) via `scipy.signal`                  |
 | `kde_peaks_above_below` | Top-`n` KDE peaks above and below the current price (primary entry point)   |
-| `kde_peak_widths`       | Prominences and widths (at `rel_height` 1.0 and 0.5) for selected peak indices |
+| `kde_peak_widths`       | Prominences and widths (at `rel_height`) for selected peak indices          |
 
 This package extracts **only** the KDE construction and peak-finding logic. It does
 **not** load data, normalize prices, compute DVR oscillators, or plot — those remain
@@ -180,16 +180,21 @@ def top_kde_peaks(
     prices: np.ndarray,
     distance: float,
     n: int = 3,
+    top_identifier: str = "prominence",
 ) -> tuple[np.ndarray, np.ndarray]:
 ```
 
-Reproduces the notebook's `top_kde_peaks` exactly:
+Top-`n` peaks of `kde_series`:
 
 - `peaks, _ = scipy.signal.find_peaks(kde_series, distance=distance)`
 - if no peaks → return two empty arrays.
 - `proms = scipy.signal.peak_prominences(kde_series, peaks)[0]`
-- `order = np.argsort(proms)[::-1][:n]` (highest prominence first; ties keep `argsort`'s order).
-- returns `(prices[peaks[order]], proms[order])`.
+- ranking `score`: `proms` when `top_identifier="prominence"` (default), or
+  `kde_series[peaks]` (peak height) when `top_identifier="height"`; any other
+  value raises `ValueError`.
+- `order = np.argsort(score)[::-1][:n]` (highest score first; ties keep `argsort`'s order).
+- returns `(prices[peaks[order]], proms[order])` — prominences are always
+  returned in the selected order regardless of `top_identifier`.
 
 `find_peaks` and `peak_prominences` are kept in scipy so their semantics
 (local-maxima/plateau handling, distance-based priority filtering, prominence
@@ -206,14 +211,15 @@ def kde_peaks_above_below(
     distance: float = 5,
     n: int = 3,
     split_at: float = 0.0,
+    top_identifier: str = "prominence",
 ) -> dict:
 ```
 
-Primary entry point for "3 highest-prominence peaks above and 3 below the current
-price." `split_at` is the current price in normalized space (defaults to `0.0`). Splits
+Primary entry point for "top-`n` peaks above and `n` below the current price."
+`split_at` is the current price in normalized space (defaults to `0.0`). Splits
 `kde`/`bin_centers` into above (`bin_centers >= split_at`) and below
 (`bin_centers < split_at`) halves, calls `top_kde_peaks` on each with the given
-`distance` and `n`, and returns:
+`distance`, `n`, and `top_identifier` (`"prominence"` | `"height"`), and returns:
 
 ```python
 {
@@ -230,22 +236,22 @@ price." `split_at` is the current price in normalized space (defaults to `0.0`).
 def kde_peak_widths(
     kde_series: np.ndarray,
     peak_indices: np.ndarray,
+    rel_height: float = 0.5,
 ) -> dict:
 ```
 
 Given a KDE array and the integer indices of selected peaks within it (as
-returned by `scipy.signal.find_peaks`), compute prominences and peak widths
-at two relative heights.
+returned by `scipy.signal.find_peaks`), compute prominences and peak widths at
+`rel_height` (default `0.5`).
 
 **Returns** a dict:
 
-| Key         | Type / shape              | Description                                            |
-|-------------|---------------------------|--------------------------------------------------------|
-| `proms`     | `np.float64`, `(n,)`      | Peak prominences via `peak_prominences`                |
-| `widths_h1` | `np.float64`, `(n,)`      | Peak widths at `rel_height=1.0`, in bins               |
-| `widths_h05`| `np.float64`, `(n,)`      | Peak widths at `rel_height=0.5`, in bins               |
+| Key      | Type / shape         | Description                                       |
+|----------|----------------------|---------------------------------------------------|
+| `proms`  | `np.float64`, `(n,)` | Peak prominences via `peak_prominences`           |
+| `widths` | `np.float64`, `(n,)` | Peak widths at `rel_height`, in bins              |
 
-All three arrays are empty when `peak_indices` is empty.
+Both arrays are empty when `peak_indices` is empty.
 Width values are in **bins**; multiply by `bin_width` to convert to
 normalized-price units.
 

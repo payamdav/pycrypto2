@@ -45,7 +45,22 @@ def _display_dfs(*dfs) -> None:
             print(df.to_string())
 
 
-def draw_chart_vp(data: dict) -> go.Figure:
+def _add_crosshair(fig: go.Figure) -> None:
+    """Cursor-following vertical + horizontal crosshair spanning all subcharts."""
+    spike = dict(
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikedash="dot",
+        spikecolor="rgba(90,90,90,0.7)",
+    )
+    fig.update_xaxes(**spike)
+    fig.update_yaxes(**spike)
+    fig.update_layout(hovermode="closest", spikedistance=-1)
+
+
+def draw_chart_vp(data: dict) -> None:
     """Render interactive VP chart; display peaks and metrics DataFrames."""
     lb_x = data["lb_x"]
     la_x = data["la_x"]
@@ -104,37 +119,21 @@ def draw_chart_vp(data: dict) -> go.Figure:
             showlegend=_show(group),
         ), row=1, col=1)
 
-    # Width rectangles — all width_h1 first (lighter, behind), then all width_h05 on top
+    # Width rectangles — single band at rel_height per peak
     for label, peak in all_peaks:
         price = peak["price"]
         h = _peak_height(price)
-        w1 = float(peak["width_h1"]) * bin_width
+        w = float(peak["width"]) * bin_width
         is_poc = label == "POC"
-        color_h1 = "rgba(220,20,60,0.2)" if is_poc else "rgba(255,140,0,0.2)"
-        if w1 > 0:
-            y0, y1 = price - w1 / 2, price + w1 / 2
+        color = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
+        if w > 0:
+            y0, y1 = price - w / 2, price + w / 2
             fig.add_trace(go.Scatter(
                 x=[0, h, h, 0, 0], y=[y0, y0, y1, y1, y0],
                 fill="toself", mode="lines", line=dict(width=0),
-                fillcolor=color_h1,
-                name="width_h1", legendgroup="width_h1",
-                showlegend=_show("width_h1"),
-            ), row=1, col=1)
-
-    for label, peak in all_peaks:
-        price = peak["price"]
-        h = _peak_height(price)
-        w05 = float(peak["width_h05"]) * bin_width
-        is_poc = label == "POC"
-        color_h05 = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
-        if w05 > 0:
-            y0, y1 = price - w05 / 2, price + w05 / 2
-            fig.add_trace(go.Scatter(
-                x=[0, h, h, 0, 0], y=[y0, y0, y1, y1, y0],
-                fill="toself", mode="lines", line=dict(width=0),
-                fillcolor=color_h05,
-                name="width_h05", legendgroup="width_h05",
-                showlegend=_show("width_h05"),
+                fillcolor=color,
+                name="width", legendgroup="width",
+                showlegend=_show("width"),
             ), row=1, col=1)
 
     # Main panel – look-back
@@ -178,6 +177,7 @@ def draw_chart_vp(data: dict) -> go.Figure:
         height=600,
         legend=dict(groupclick="togglegroup"),
     )
+    _add_crosshair(fig)
 
     # --- Tables ---
     peak_rows = []
@@ -188,15 +188,14 @@ def draw_chart_vp(data: dict) -> go.Figure:
             "price": price,
             "height (KDE)": _peak_height(price),
             "prominence": peak["prominence"],
-            "width_h1 (norm-price)": peak["width_h1"] * bin_width,
-            "width_h05 (norm-price)": peak["width_h05"] * bin_width,
+            "width (norm-price)": peak["width"] * bin_width,
         })
     peaks_df = pd.DataFrame(peak_rows)
     metrics_df = pd.DataFrame(list(metrics.items()), columns=["name", "value"])
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
-    return fig
+    return None
 
 
 def _add_continued_width_content(
@@ -205,7 +204,7 @@ def _add_continued_width_content(
     """Add the continued-width VP content (left panel + price panel) to `fig`.
 
     Draws the z-scored histogram/KDE and peak lines on the left panel (1, 1), the
-    look-back/look-ahead paths, continued width_h05 bands, x=1.0 separator and y=0
+    look-back/look-ahead paths, continued width bands, x=1.0 separator and y=0
     line on the price panel (price_row, price_col). Returns (peaks_df, metrics_df).
     """
     lb_x = data["lb_x"]
@@ -267,27 +266,27 @@ def _add_continued_width_content(
             showlegend=_show(group),
         ), row=1, col=1)
 
-    # width_h05 rectangles: left panel + price panel (no width_h1)
+    # width rectangles at rel_height: left panel + price panel
     x_right_start = float(lb_x[0])
     x_right_end = float(la_x[-1])
 
     for label, peak in all_peaks:
         price = peak["price"]
         h = _peak_height_z(price)
-        w05 = float(peak["width_h05"]) * bin_width
-        if w05 == 0:
+        w = float(peak["width"]) * bin_width
+        if w == 0:
             continue
         is_poc = label == "POC"
-        color_h05 = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
-        y0, y1 = price - w05 / 2, price + w05 / 2
+        color = "rgba(220,20,60,0.5)" if is_poc else "rgba(255,140,0,0.5)"
+        y0, y1 = price - w / 2, price + w / 2
 
         # Left panel rectangle
         fig.add_trace(go.Scatter(
             x=[0, h, h, 0, 0], y=[y0, y0, y1, y1, y0],
             fill="toself", mode="lines", line=dict(width=0),
-            fillcolor=color_h05,
-            name="width_h05", legendgroup="width_h05",
-            showlegend=_show("width_h05"),
+            fillcolor=color,
+            name="width", legendgroup="width",
+            showlegend=_show("width"),
         ), row=1, col=1)
 
         # Price panel rectangle (same band, full x range)
@@ -295,8 +294,8 @@ def _add_continued_width_content(
             x=[x_right_start, x_right_end, x_right_end, x_right_start, x_right_start],
             y=[y0, y0, y1, y1, y0],
             fill="toself", mode="lines", line=dict(width=0),
-            fillcolor=color_h05,
-            name="width_h05", legendgroup="width_h05",
+            fillcolor=color,
+            name="width", legendgroup="width",
             showlegend=False,
         ), row=price_row, col=price_col)
 
@@ -333,6 +332,7 @@ def _add_continued_width_content(
     )
 
     fig.update_xaxes(title_text="robust z-score of volume", row=1, col=1)
+    _add_crosshair(fig)
 
     # --- Tables ---
     peak_rows = []
@@ -345,8 +345,7 @@ def _add_continued_width_content(
             "price": price,
             "height": raw_height,
             "prominence": raw_prom,
-            "width_h1": peak["width_h1"] * bin_width,
-            "width_h05": peak["width_h05"] * bin_width,
+            "width (norm-price)": peak["width"] * bin_width,
             "height_z": float(z_score(raw_height)),
             "prominence_z": float(z_score(raw_prom)),
         })
@@ -362,8 +361,8 @@ def _chart_title(data: dict) -> str:
     )
 
 
-def draw_chart_vp_continued_width(data: dict) -> go.Figure:
-    """VP chart variant: no width_h1, width_h05 continued into right panel, z-scored volume axis."""
+def draw_chart_vp_continued_width(data: dict) -> None:
+    """VP chart variant: single width band continued into right panel, z-scored volume axis."""
     fig = make_subplots(
         rows=1, cols=2,
         shared_yaxes=True,
@@ -382,7 +381,7 @@ def draw_chart_vp_continued_width(data: dict) -> go.Figure:
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
-    return fig
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +415,7 @@ def _add_kalman_overlay(fig: go.Figure, lb_x, value, _show, price_row: int, pric
 
 def draw_chart_vp_continued_width_kalman_1d(
     data: dict, measurement_variance: float = 1.0, process_noise=None
-) -> go.Figure:
+) -> None:
     """continued_width chart + clipped 1D-Kalman smoothing of lb_pnc on the price panel."""
     if process_noise is None:
         process_noise = 0.03
@@ -444,12 +443,12 @@ def draw_chart_vp_continued_width_kalman_1d(
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
-    return fig
+    return None
 
 
 def draw_chart_vp_continued_width_kalman_2d(
     data: dict, measurement_variance: float = 1.0, process_noise=None
-) -> go.Figure:
+) -> None:
     """continued_width chart + 2D-Kalman smoothing, with a speed subchart sharing lb_x."""
     Q = _coerce_process_noise(process_noise, 2)
 
@@ -493,12 +492,12 @@ def draw_chart_vp_continued_width_kalman_2d(
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
-    return fig
+    return None
 
 
 def draw_chart_vp_continued_width_kalman_3d(
     data: dict, measurement_variance: float = 1.0, process_noise=None
-) -> go.Figure:
+) -> None:
     """continued_width chart + 3D-Kalman smoothing, with speed & acceleration subcharts sharing lb_x."""
     Q = _coerce_process_noise(process_noise, 3)
 
@@ -553,4 +552,4 @@ def draw_chart_vp_continued_width_kalman_3d(
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
-    return fig
+    return None

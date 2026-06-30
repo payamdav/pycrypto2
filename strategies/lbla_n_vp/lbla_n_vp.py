@@ -28,6 +28,10 @@ def lookback_lookahead_normalized_vp(
     bandwidth: int = 5,
     kernel_type: str = "Triangular",
     kde_ignore_borders: bool = True,
+    rel_height: float = 0.5,
+    top_identifier: str = "prominence",
+    peak_numbers: int = 3,
+    minimum_peak_score: float = 0.0,
 ) -> dict:
     """Run the full LBLA normalized VP pipeline for a single anchor minute.
 
@@ -38,6 +42,13 @@ def lookback_lookahead_normalized_vp(
     *datetime* is the **current time**, not the candle start time — it is
     60 000 ms ahead of the last candle; lb_la_n_base derives
     ``last_candle_ts = current_ts - 60_000``.
+
+    Peak-selection controls:
+    ``rel_height`` sets the relative height for peak-width measurement;
+    ``top_identifier`` (``"prominence"`` | ``"height"``) is the peak ranking
+    key; ``peak_numbers`` is the number of peaks kept above and below;
+    ``minimum_peak_score`` is the lowest robust z-score (of prominence or
+    height, per ``top_identifier``) a peak must reach to survive.
     """
     data = {
         "asset": asset,
@@ -49,6 +60,10 @@ def lookback_lookahead_normalized_vp(
         "bandwidth": bandwidth,
         "kernel_type": kernel_type,
         "kde_ignore_borders": kde_ignore_borders,
+        "rel_height": rel_height,
+        "top_identifier": top_identifier,
+        "peak_numbers": peak_numbers,
+        "minimum_peak_score": minimum_peak_score,
     }
 
     timing: dict[str, float] = {}
@@ -231,30 +246,55 @@ def vp_analysis(data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def vp_hvn(data: dict) -> dict:
-    """Find POC + 3 peaks above + 3 peaks below from vp_kde.
+    """Find POC + ``peak_numbers`` peaks above and below from vp_kde.
 
-    Uses kde_tools.kde_peak_widths for prominence + widths at rel_height
-    1.0 and 0.5. Widths are stored in bins; multiply by bin_width for
+    Peaks are ranked by prominence or height (``top_identifier``) and filtered
+    by ``minimum_peak_score`` (robust z-score of the ranking quantity, using
+    volume ``v_median`` / ``v_iqr``). Width is measured at ``rel_height`` via
+    kde_tools.kde_peak_widths and stored in bins; multiply by bin_width for
     normalized-price units. Results are stored in data["hvn"].
     """
-    from packages.kde_tools import kde_peak_widths
-
-    vp_kde     = data["vp_kde"]
+    vp_kde      = data["vp_kde"]
     bin_centers = data["bin_centers"]
-    bandwidth  = data["bandwidth"]
-    bin_width  = data["bin_width"]
+    bandwidth   = data["bandwidth"]
+    bin_width   = data["bin_width"]
+    rel_height  = data["rel_height"]
+    top_identifier     = data["top_identifier"]
+    peak_numbers       = data["peak_numbers"]
+    minimum_peak_score = data["minimum_peak_score"]
 
-    # --- POC ---
+    if top_identifier not in ("prominence", "height"):
+        raise ValueError(
+            f"top_identifier must be 'prominence' or 'height', got {top_identifier!r}"
+        )
+
+    metrics  = data["metrics"]
+    v_median = float(metrics["v_median"])
+    v_iqr    = float(metrics["v_iqr"])
+
+    # --- POC (always kept) ---
     poc_idx = int(np.argmax(vp_kde))
-    poc_details = _peak_record(vp_kde, bin_centers, np.array([poc_idx]), bin_width, 0)
+    poc_details = _peak_record(vp_kde, bin_centers, np.array([poc_idx]), bin_width, rel_height)
     poc = poc_details[0] if poc_details else None
 
     # --- Above / below peaks (global indices) ---
-    above = _top_peaks(vp_kde, bin_centers, bandwidth, n=3, above=True, bin_width=bin_width)
-    below = _top_peaks(vp_kde, bin_centers, bandwidth, n=3, above=False, bin_width=bin_width)
+    kwargs = dict(
+        bin_width=bin_width, rel_height=rel_height, top_identifier=top_identifier,
+        minimum_peak_score=minimum_peak_score, v_median=v_median, v_iqr=v_iqr,
+    )
+    above = _top_peaks(vp_kde, bin_centers, bandwidth, peak_numbers, True, **kwargs)
+    below = _top_peaks(vp_kde, bin_centers, bandwidth, peak_numbers, False, **kwargs)
 
     data["hvn"] = {"poc": poc, "above": above, "below": below}
     return data
+
+
+def _robust_z(x: np.ndarray, v_median: float, v_iqr: float) -> np.ndarray:
+    """Robust z-score (x - v_median) / v_iqr; zeros when v_iqr == 0."""
+    x = np.asarray(x, dtype=np.float64)
+    if v_iqr == 0.0:
+        return np.zeros_like(x)
+    return (x - v_median) / v_iqr
 
 
 def _top_peaks(
@@ -264,10 +304,17 @@ def _top_peaks(
     n: int,
     above: bool,
     bin_width: float,
+    rel_height: float,
+    top_identifier: str,
+    minimum_peak_score: float,
+    v_median: float,
+    v_iqr: float,
 ) -> list[dict]:
-    """Return up to n peaks from the above or below half, with full details."""
-    from packages.kde_tools import kde_peak_widths
+    """Return up to n peaks from the above or below half, with full details.
 
+    Ranks by ``top_identifier`` (prominence or height) and drops peaks whose
+    robust z-score (of that quantity) is below ``minimum_peak_score``.
+    """
     mask = (bin_centers >= 0.0) if above else (bin_centers < 0.0)
     local_kde = kde[mask]
     global_map = np.where(mask)[0]
@@ -287,11 +334,22 @@ def _top_peaks(
     if len(local_peaks) == 0:
         return []
 
-    order = np.argsort(local_proms)[::-1][:n]
-    selected_local = local_peaks[order]
-    selected_global = global_map[selected_local]
+    local_heights = local_kde[local_peaks]
+    rank = local_proms if top_identifier == "prominence" else local_heights
 
-    return _peak_record(kde, bin_centers, selected_global, bin_width)
+    # Minimum-score filter on the robust z-score of the ranking quantity
+    score = _robust_z(rank, v_median, v_iqr)
+    keep = score >= minimum_peak_score
+    local_peaks = local_peaks[keep]
+    rank = rank[keep]
+
+    if len(local_peaks) == 0:
+        return []
+
+    order = np.argsort(rank)[::-1][:n]
+    selected_global = global_map[local_peaks[order]]
+
+    return _peak_record(kde, bin_centers, selected_global, bin_width, rel_height)
 
 
 def _peak_record(
@@ -299,7 +357,7 @@ def _peak_record(
     bin_centers: np.ndarray,
     global_indices: np.ndarray,
     bin_width: float,
-    _unused: int = 0,
+    rel_height: float = 0.5,
 ) -> list[dict]:
     """Build a list of peak dicts from global KDE indices."""
     from packages.kde_tools import kde_peak_widths
@@ -307,13 +365,13 @@ def _peak_record(
     if len(global_indices) == 0:
         return []
 
-    details = kde_peak_widths(kde, global_indices)
+    details = kde_peak_widths(kde, global_indices, rel_height=rel_height)
     records = []
     for j, idx in enumerate(global_indices):
         records.append({
             "price":      float(bin_centers[idx]),
+            "height":     float(kde[idx]),
             "prominence": float(details["proms"][j]),
-            "width_h1":   float(details["widths_h1"][j]),
-            "width_h05":  float(details["widths_h05"][j]),
+            "width":      float(details["widths"][j]),
         })
     return records
