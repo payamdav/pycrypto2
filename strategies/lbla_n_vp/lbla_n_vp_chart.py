@@ -45,15 +45,48 @@ def _display_dfs(*dfs) -> None:
             print(df.to_string())
 
 
-def _add_crosshair(fig: go.Figure) -> None:
-    """Neon-green crosshair that traces across all stacked subcharts.
+def _merge_spike_axes(fig: go.Figure, layout: dict, letter: str) -> None:
+    """Rebind traces so axes sharing a domain become one shared axis.
 
-    ``make_subplots(shared_xaxes=True)`` builds one *matched* x-axis per stacked
-    row (plotly >= 4), so ``spikemode="across"`` only reaches the hovered row.
-    Rebinding every trace in a column to that column's first x-axis restores a
-    single shared axis, so the vertical spike spans all stacked subcharts at
-    once. Must be called **after** all traces are added.
+    ``make_subplots(shared_xaxes/shared_yaxes=True)`` builds one *matched* axis
+    per row/column (plotly >= 4), so ``spikemode="across"`` only reaches the
+    hovered subchart. Rebinding every trace onto the range-master axis of each
+    shared domain restores a single axis, letting the perpendicular spike span
+    all subcharts in that band (x-domain → stacked rows; y-domain → side-by-side
+    columns).
     """
+    prefix = letter + "axis"  # "xaxis" / "yaxis"
+    groups: dict[tuple, list[str]] = {}
+    for name, ax in layout.items():
+        if name.startswith(prefix) and isinstance(ax, dict):
+            dom = tuple(ax.get("domain", (0.0, 1.0)))
+            groups.setdefault(dom, []).append(letter + name[len(prefix):])
+
+    for axids in groups.values():
+        if len(axids) < 2:
+            continue
+        axids.sort(key=lambda a: int(a[1:]) if a[1:] else 1)
+        master = next(
+            (a for a in axids if layout[prefix + a[1:]].get("matches") is None),
+            axids[0],
+        )
+        rebind = set(axids) - {master}
+        for tr in fig.data:
+            if (getattr(tr, prefix) or letter) in rebind:
+                setattr(tr, prefix, master)
+
+
+def _add_crosshair(fig: go.Figure) -> None:
+    """Neon-green crosshair that traces across all subcharts (both axes).
+
+    Merges matched x-axes (so the vertical spike spans stacked rows) and matched
+    y-axes (so the horizontal spike spans side-by-side columns), then enables
+    cursor-following spikes. Must be called **after** all traces are added.
+    """
+    layout = fig.to_dict()["layout"]
+    _merge_spike_axes(fig, layout, "x")
+    _merge_spike_axes(fig, layout, "y")
+
     spike = dict(
         showspikes=True,
         spikemode="across",
@@ -62,31 +95,6 @@ def _add_crosshair(fig: go.Figure) -> None:
         spikedash="solid",
         spikecolor="#39FF14",  # sharp neon / highlighter green
     )
-
-    # Group x-axes by horizontal domain; stacked rows share a domain.
-    layout = fig.to_dict()["layout"]
-    domain_groups: dict[tuple, list[str]] = {}
-    for name, ax in layout.items():
-        if name.startswith("xaxis") and isinstance(ax, dict):
-            dom = tuple(ax.get("domain", (0.0, 1.0)))
-            domain_groups.setdefault(dom, []).append("x" + name[len("xaxis"):])
-
-    # For each column with >1 stacked x-axis, rebind every trace onto the
-    # group's range-master (the axis with ``matches=None``, which also carries
-    # the shared range and bottom tick labels); fall back to the lowest id.
-    for axids in domain_groups.values():
-        if len(axids) < 2:
-            continue
-        axids.sort(key=lambda a: int(a[1:]) if a[1:] else 1)
-        master = next(
-            (a for a in axids if layout["xaxis" + a[1:]].get("matches") is None),
-            axids[0],
-        )
-        rebind = set(axids) - {master}
-        for tr in fig.data:
-            if (tr.xaxis or "x") in rebind:
-                tr.xaxis = master
-
     fig.update_xaxes(**spike)
     fig.update_yaxes(**spike)
     fig.update_layout(hovermode="closest", spikedistance=-1)
@@ -434,6 +442,24 @@ def _coerce_process_noise(process_noise, dim: int, default_scalar: float = 0.03)
     return np.asarray(process_noise, dtype=np.float64)
 
 
+def _zero_crossings(xv: np.ndarray, yv: np.ndarray) -> np.ndarray:
+    """X positions where ``yv`` is (or crosses) zero.
+
+    Includes exact-zero samples and linearly-interpolated x where consecutive
+    samples have opposite signs. Returns a sorted float array.
+    """
+    xv = np.asarray(xv, dtype=np.float64)
+    yv = np.asarray(yv, dtype=np.float64)
+    xs = list(xv[yv == 0.0])
+    a, b = yv[:-1], yv[1:]
+    cross = (a * b < 0.0)
+    if np.any(cross):
+        i = np.where(cross)[0]
+        t = a[i] / (a[i] - b[i])  # fraction to the zero between i and i+1
+        xs.extend(xv[i] + t * (xv[i + 1] - xv[i]))
+    return np.sort(np.asarray(xs, dtype=np.float64))
+
+
 def _add_kalman_overlay(fig: go.Figure, lb_x, value, _show, price_row: int, price_col: int):
     """Clip the smoothed value to [-1, 1] and draw it on the price panel."""
     smoothed = np.clip(value, -1.0, 1.0)
@@ -573,6 +599,17 @@ def draw_chart_vp_continued_width_kalman_3d(
         showlegend=_show("acceleration"),
     ), row=3, col=2)
     fig.add_vline(x=1.0, line=dict(color="gray", width=1, dash="dash"), row=3, col=2)
+
+    # Mark where acceleration is/crosses zero
+    accel_zeros = _zero_crossings(data["lb_x"], accel)
+    if len(accel_zeros):
+        fig.add_trace(go.Scatter(
+            x=accel_zeros, y=np.zeros_like(accel_zeros), mode="markers",
+            marker=dict(symbol="circle-open", size=8,
+                        color="black", line=dict(color="black", width=1.5)),
+            name="accel=0", legendgroup="accel=0",
+            showlegend=_show("accel=0"),
+        ), row=3, col=2)
 
     fig.update_yaxes(range=[-1, 1], row=1, col=1)
     fig.update_yaxes(range=[-1, 1], row=1, col=2)
