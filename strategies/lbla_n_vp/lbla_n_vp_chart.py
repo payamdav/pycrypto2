@@ -46,15 +46,47 @@ def _display_dfs(*dfs) -> None:
 
 
 def _add_crosshair(fig: go.Figure) -> None:
-    """Cursor-following vertical + horizontal crosshair spanning all subcharts."""
+    """Neon-green crosshair that traces across all stacked subcharts.
+
+    ``make_subplots(shared_xaxes=True)`` builds one *matched* x-axis per stacked
+    row (plotly >= 4), so ``spikemode="across"`` only reaches the hovered row.
+    Rebinding every trace in a column to that column's first x-axis restores a
+    single shared axis, so the vertical spike spans all stacked subcharts at
+    once. Must be called **after** all traces are added.
+    """
     spike = dict(
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
-        spikethickness=1,
-        spikedash="dot",
-        spikecolor="rgba(90,90,90,0.7)",
+        spikethickness=1.5,
+        spikedash="solid",
+        spikecolor="#39FF14",  # sharp neon / highlighter green
     )
+
+    # Group x-axes by horizontal domain; stacked rows share a domain.
+    layout = fig.to_dict()["layout"]
+    domain_groups: dict[tuple, list[str]] = {}
+    for name, ax in layout.items():
+        if name.startswith("xaxis") and isinstance(ax, dict):
+            dom = tuple(ax.get("domain", (0.0, 1.0)))
+            domain_groups.setdefault(dom, []).append("x" + name[len("xaxis"):])
+
+    # For each column with >1 stacked x-axis, rebind every trace onto the
+    # group's range-master (the axis with ``matches=None``, which also carries
+    # the shared range and bottom tick labels); fall back to the lowest id.
+    for axids in domain_groups.values():
+        if len(axids) < 2:
+            continue
+        axids.sort(key=lambda a: int(a[1:]) if a[1:] else 1)
+        master = next(
+            (a for a in axids if layout["xaxis" + a[1:]].get("matches") is None),
+            axids[0],
+        )
+        rebind = set(axids) - {master}
+        for tr in fig.data:
+            if (tr.xaxis or "x") in rebind:
+                tr.xaxis = master
+
     fig.update_xaxes(**spike)
     fig.update_yaxes(**spike)
     fig.update_layout(hovermode="closest", spikedistance=-1)
@@ -332,7 +364,6 @@ def _add_continued_width_content(
     )
 
     fig.update_xaxes(title_text="robust z-score of volume", row=1, col=1)
-    _add_crosshair(fig)
 
     # --- Tables ---
     peak_rows = []
@@ -378,6 +409,7 @@ def draw_chart_vp_continued_width(data: dict) -> None:
         height=600,
         legend=dict(groupclick="togglegroup"),
     )
+    _add_crosshair(fig)
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
@@ -440,6 +472,7 @@ def draw_chart_vp_continued_width_kalman_1d(
         height=600,
         legend=dict(groupclick="togglegroup"),
     )
+    _add_crosshair(fig)
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
@@ -489,6 +522,7 @@ def draw_chart_vp_continued_width_kalman_2d(
         height=750,
         legend=dict(groupclick="togglegroup"),
     )
+    _add_crosshair(fig)
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
@@ -549,6 +583,7 @@ def draw_chart_vp_continued_width_kalman_3d(
         height=850,
         legend=dict(groupclick="togglegroup"),
     )
+    _add_crosshair(fig)
 
     fig.show()
     _display_dfs(peaks_df, metrics_df)
