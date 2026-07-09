@@ -7,6 +7,8 @@ Notation: z_k, x̂_k, P_k, Q, R, K_k, F=1, H=1.
 import numpy as np
 from numba import njit
 
+from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
+
 
 @njit
 def kalman_1d_step(
@@ -56,6 +58,40 @@ def kalman_1d_batch(
     for k in range(n):
         est, cov = kalman_1d_step(
             measurements[k], est, cov, process_variance, measurement_variance
+        )
+        estimates[k] = est
+        error_covariances[k] = cov
+
+    return estimates, error_covariances
+
+
+@njit
+def kalman_1d_batch_adaptive(
+    measurements: np.ndarray,
+    process_variance: float,
+    window: int,
+) -> tuple:
+    """Batch 1D Kalman filter with per-index adaptive measurement variance.
+
+    measurement_variance[k] = rolling_mean_stddev(measurements, window)[k, 1] ** 2.
+    process_variance is fixed across all indices. initial_estimate = measurements[0];
+    initial_error_cov = measurement_variance[0].
+
+    Returns (estimates, error_covariances) — float64 arrays of shape (N,).
+    """
+    n = len(measurements)
+    mean_std = rolling_mean_stddev(measurements, window)
+    variance = mean_std[:, 1] ** 2
+
+    estimates = np.empty(n, dtype=np.float64)
+    error_covariances = np.empty(n, dtype=np.float64)
+
+    est = measurements[0]
+    cov = variance[0]
+
+    for k in range(n):
+        est, cov = kalman_1d_step(
+            measurements[k], est, cov, process_variance, variance[k]
         )
         estimates[k] = est
         error_covariances[k] = cov

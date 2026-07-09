@@ -32,6 +32,20 @@ Processes a 1D `float64` array of length N. Returns `(estimates, error_covarianc
 estimates, covs = kalman_1d_batch(prices, prices[0], 1.0, 1e-4, 1e-2)
 ```
 
+### `kalman_1d_batch_adaptive(measurements, process_variance, window)`
+
+Variance-adaptive variant of `kalman_1d_batch`: `measurement_variance` is derived per index
+instead of fixed. Computes `rolling_mean_stddev(measurements, window)` (from
+`packages.indicators.rolling_mean_stddev`), squares its stddev column to a per-index
+`variance` array, and uses `variance[k]` as the measurement variance at step `k`.
+`process_variance` stays fixed across all indices. `initial_estimate = measurements[0]`,
+`initial_error_cov = variance[0]`. Returns `(estimates, error_covariances)`, both shape
+`(N,)`, same contract as `kalman_1d_batch` — no padding, one value per input index.
+
+```python
+estimates, covs = kalman_1d_batch_adaptive(prices, 1e-4, window=60)
+```
+
 ---
 
 ## 2D Model — `kalman_2d.py`
