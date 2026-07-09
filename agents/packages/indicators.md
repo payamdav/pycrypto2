@@ -26,7 +26,7 @@ from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 - Input: 1D `np.ndarray`, **must be `dtype=np.float64`**.
 - Output: newly allocated 1D `np.ndarray`, same shape, `dtype=np.float64`.
 - `window` defaults to `60`.
-- Indices where a full window is not yet available are padded with `0.0`.
+- Indices where a full window is not yet available are backfilled with the first computed (fully-windowed) value, so the output has no leading `0.0`/zero-warmup segment.
 - All internal loops use explicit `for` loops (no NumPy high-level calls inside `@njit`).
 
 ---
@@ -34,7 +34,7 @@ from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 ## Functions
 
 ### `ma(array, window=60)`
-Simple moving average. `output[i] = mean(array[i-window+1 : i+1])` for `i >= window-1`, else `0.0`.
+Simple moving average. `output[i] = mean(array[i-window+1 : i+1])` for `i >= window-1`; indices `< window-1` are backfilled with `output[window-1]`.
 
 ```python
 out = ma(prices, window=20)
@@ -44,7 +44,7 @@ out = ma(prices, window=20)
 
 ### `wma(array, weights, window=60)`
 Weighted moving average. `weights` is a 1D `float64` array of length `window`; normalized internally.
-`output[i] = sum(array[i-window+1:i+1] * weights) / sum(weights)` for `i >= window-1`, else `0.0`.
+`output[i] = sum(array[i-window+1:i+1] * weights) / sum(weights)` for `i >= window-1`; indices `< window-1` are backfilled with `output[window-1]`.
 
 ```python
 w = np.arange(1, 21, dtype=np.float64)
@@ -55,7 +55,7 @@ out = wma(prices, w, window=20)
 
 ### `vwma(array, volume, window=60)`
 Volume-weighted moving average. `volume` must be the same shape as `array`.
-`output[i] = sum(array * volume) / sum(volume)` over the window for `i >= window-1`, else `0.0`.
+`output[i] = sum(array * volume) / sum(volume)` over the window for `i >= window-1`; indices `< window-1` are backfilled with `output[window-1]`.
 
 ```python
 out = vwma(prices, volumes, window=20)
@@ -66,7 +66,7 @@ out = vwma(prices, volumes, window=20)
 ### `rsi_1_1(array, window=60)`
 RSI using Wilder's smoothing (`alpha = 1/window`), scaled to `[-1, 1]` via `(RSI - 50) / 50`.
 Seeded from the first `window` price changes; valid from index `window` onward.
-`output[i] = 0.0` for `i < window`. When `avg_loss == 0`, output is `1.0`.
+Indices `< window` are backfilled with `output[window]`. When `avg_loss == 0`, output is `1.0`.
 
 ```python
 out = rsi_1_1(prices, window=14)
@@ -77,7 +77,7 @@ out = rsi_1_1(prices, window=14)
 
 ### `stddev(array, window=60)`
 Rolling **population** standard deviation (divides by N, not N-1).
-`output[i] = std(array[i-window+1:i+1])` for `i >= window-1`, else `0.0`.
+`output[i] = std(array[i-window+1:i+1])` for `i >= window-1`; indices `< window-1` are backfilled with `output[window-1]`.
 
 ```python
 out = stddev(prices, window=20)
@@ -87,7 +87,7 @@ out = stddev(prices, window=20)
 
 ### `rolling_robust_z_score(array, window=60)`
 Rolling robust z-score: `(x - median) / IQR` where `Q1 = sorted[W//4]`, `Q3 = sorted[3*W//4]`.
-Returns `0.0` when `IQR == 0` or `i < window-1`.
+Returns `0.0` when `IQR == 0` (including at `i == window-1`). Indices `< window-1` are backfilled with `output[window-1]`.
 Uses an incremental sort: the first window is fully sorted once; subsequent windows replace the outgoing value with the incoming value and bubble it into position in O(W).
 
 ```python

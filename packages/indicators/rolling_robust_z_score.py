@@ -133,4 +133,8 @@ def rolling_robust_z_score(array, window=60):
         else:
             out[i] = (array[i] - median) / iqr
 
+    first = out[window - 1]
+    for i in range(window - 1):
+        out[i] = first
+
     return out

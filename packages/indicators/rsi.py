@@ -42,4 +42,8 @@ def rsi_1_1(array, window=60):
             rsi = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
             out[i] = (rsi - 50.0) / 50.0
 
+    first = out[window]
+    for i in range(window):
+        out[i] = first
+
     return out

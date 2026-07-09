@@ -14,4 +14,8 @@ def wma(array, weights, window=60):
         for j in range(window):
             s += array[i - window + 1 + j] * weights[j]
         out[i] = s / w_sum
+    if n >= window:
+        first = out[window - 1]
+        for i in range(window - 1):
+            out[i] = first
     return out

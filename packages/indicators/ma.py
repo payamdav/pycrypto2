@@ -11,4 +11,8 @@ def ma(array, window=60):
         for j in range(i - window + 1, i + 1):
             s += array[j]
         out[i] = s / window
+    if n >= window:
+        first = out[window - 1]
+        for i in range(window - 1):
+            out[i] = first
     return out

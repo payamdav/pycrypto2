@@ -13,4 +13,8 @@ def vwma(array, volume, window=60):
             s += array[j] * volume[j]
             v_sum += volume[j]
         out[i] = s / v_sum
+    if n >= window:
+        first = out[window - 1]
+        for i in range(window - 1):
+            out[i] = first
     return out

@@ -17,4 +17,8 @@ def stddev(array, window=60):
             var += diff * diff
         var /= window
         out[i] = var ** 0.5
+    if n >= window:
+        first = out[window - 1]
+        for i in range(window - 1):
+            out[i] = first
     return out
