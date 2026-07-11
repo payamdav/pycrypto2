@@ -5,7 +5,7 @@ A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap
 ```
 
 Individual imports:
@@ -19,6 +19,7 @@ from packages.indicators.stddev import stddev
 from packages.indicators.rolling_robust_z_score import rolling_robust_z_score
 from packages.indicators.rolling_robust_z_score import rolling_median_iqr
 from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
+from packages.indicators.rolling_vwap import rolling_vwap
 ```
 
 ## Conventions
@@ -128,14 +129,25 @@ stddevs = out[:, 1]
 
 ---
 
+### `rolling_vwap(quotes, volumes, window=60)`
+Rolling VWAP. `quotes` and `volumes` must be the same shape.
+`output[i] = sum(quotes[i-window+1:i+1]) / sum(volumes[i-window+1:i+1])` for `i >= window-1` (window inclusive of the current item); indices `< window-1` are backfilled with `output[window-1]`.
+
+```python
+out = rolling_vwap(quotes, volumes, window=60)
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
+quotes = prices * volume
 weights = np.arange(1, 21, dtype=np.float64)  # length must equal window
 
 ma_out    = ma(prices, window=20)
@@ -146,4 +158,5 @@ std_out   = stddev(prices, window=20)
 rzs_out   = rolling_robust_z_score(prices, window=60)
 rmi_out   = rolling_median_iqr(prices, window=60)   # shape (200, 2)
 rms_out   = rolling_mean_stddev(prices, window=60)  # shape (200, 2)
+rv_out    = rolling_vwap(quotes, volume, window=20)
 ```
