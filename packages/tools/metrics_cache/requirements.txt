@@ -1,4 +1,0 @@
-numpy
-numba
-pandas
-pyarrow

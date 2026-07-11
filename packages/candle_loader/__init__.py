@@ -5,103 +5,99 @@ from pathlib import Path
 import duckdb
 import numpy as np
 
-_VALID_COLUMNS = {"o", "h", "l", "c", "v", "q", "n", "vwap", "vb", "vs"}
+COLUMNS = ["ts", "o", "h", "l", "c", "v", "q", "n", "vwap", "vb", "vs"]
+
+_HF_GLOB = "hf://datasets/payamdavaee/candles/{asset}/*.parquet"
 
 
-def _cache_filename(asset: str, date_from: str, date_to: str) -> str:
-    def compact(s: str) -> str:
-        return s.replace("-", "").replace(" ", "T").replace(":", "")[:15] if s else "all"
-    return f"{asset}_1m_{compact(date_from)}_{compact(date_to)}.parquet"
+def _cache_path(asset: str) -> Path:
+    return Path.cwd() / "data" / f"{asset}_1m_all.parquet"
 
 
-def _find_cache(filename: str) -> Path | None:
-    cwd = Path.cwd()
-    for candidate in [cwd / filename, cwd / "data" / filename]:
-        if candidate.exists():
-            return candidate
-    return None
+def local_cache(assets: list[str] | str) -> None:
+    """Ensure a single local parquet file per asset exists in CWD/data/.
+
+    Downloads the full available candle range from the HuggingFace dataset
+    only for assets whose file is not already present.
+    """
+    if isinstance(assets, str):
+        assets = [assets]
+    for asset in assets:
+        asset = asset.lower()
+        path = _cache_path(asset)
+        t0 = time.perf_counter()
+        if path.exists():
+            print(f"[{asset}] candle file already cached: {path} ({time.perf_counter() - t0:.2f}s)")
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".parquet.tmp")
+        con = duckdb.connect()
+        con.execute(f"""
+            COPY (
+                SELECT * FROM read_parquet('{_HF_GLOB.format(asset=asset)}')
+                ORDER BY ts ASC
+            ) TO '{tmp}' (FORMAT PARQUET);
+        """)
+        con.close()
+        tmp.rename(path)
+        print(f"[{asset}] candle file stored: {path} ({time.perf_counter() - t0:.2f}s)")
 
 
-def load_candles(asset: str, date_from: str, date_to: str, columns: list[str]) -> np.ndarray:
-    if not columns:
-        raise ValueError("columns must not be empty")
-    invalid = [c for c in columns if c not in _VALID_COLUMNS]
-    if invalid:
-        if "ts" in invalid:
-            raise ValueError(
-                "ts must not be listed in columns — it is always included automatically as column 0"
-            )
-        raise ValueError(f"Invalid column name(s): {invalid}. Valid names: {sorted(_VALID_COLUMNS)}")
+def _to_ms(value) -> int | None:
+    """Normalize a boundary to a minute-truncated ms epoch. None passes through."""
+    if value is None:
+        return None
+    if isinstance(value, (int, np.integer)):
+        ts = int(value)
+        if len(str(ts)) != 13:
+            raise ValueError(f"Integer timestamps must be 13-digit unix ms epochs, got: {ts}")
+        return ts - ts % 60_000
+    dt = datetime.fromisoformat(str(value)).replace(second=0, microsecond=0, tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
 
+
+def load_candles(asset: str, date_from=None, date_to=None) -> np.ndarray:
+    """Load minute candles for one asset from the local cache file.
+
+    date_from / date_to: None (open end), datetime string like
+    "2026-05-01 13:55:44" (seconds truncated, UTC), or 13-digit unix ms
+    timestamp. Both inclusive. Returns an (n, 11) float64 ndarray with
+    columns ts, o, h, l, c, v, q, n, vwap, vb, vs.
+    """
     asset = asset.lower()
-    cols_sql = ", ".join(columns)
+    local_cache(asset)
 
     conditions = []
-    if date_from:
-        conditions.append(f"ts >= '{date_from}'::TIMESTAMP")
-    if date_to:
-        conditions.append(f"ts <= '{date_to}'::TIMESTAMP")
+    from_ms = _to_ms(date_from)
+    to_ms = _to_ms(date_to)
+    if from_ms is not None:
+        conditions.append(f"ts >= epoch_ms({from_ms})")
+    if to_ms is not None:
+        conditions.append(f"ts <= epoch_ms({to_ms})")
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    cache_file = _cache_filename(asset, date_from, date_to)
-    cached = _find_cache(cache_file)
-
-    con = duckdb.connect()
     t0 = time.perf_counter()
+    con = duckdb.connect()
+    result = con.execute(f"""
+        SELECT {', '.join(COLUMNS)}
+        FROM read_parquet('{_cache_path(asset)}')
+        {where_clause}
+        ORDER BY ts ASC;
+    """).fetchnumpy()
+    con.close()
 
-    if cached:
-        source = str(cached)
-        query = f"""
-            SELECT ts, {cols_sql}
-            FROM read_parquet('{source}')
-            {where_clause}
-            ORDER BY ts ASC;
-        """
-        result = con.execute(query).fetchnumpy()
-    else:
-        hf_path = f"hf://datasets/payamdavaee/candles/{asset}/*.parquet"
-        # Fetch all columns so the cache serves any future column combination.
-        all_query = f"""
-            SELECT *
-            FROM read_parquet('{hf_path}')
-            {where_clause}
-            ORDER BY ts ASC;
-        """
-        full = con.execute(all_query).fetchdf()
-
-        cache_dir = Path.cwd() / "data"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_dir / cache_file
-        full.to_parquet(cache_path, index=False)
-
-        # Derive the requested columns from the already-fetched DataFrame.
-        selected = full[["ts"] + list(columns)]
-        result = {col: selected[col].to_numpy() for col in selected.columns}
+    out = np.empty((len(result["ts"]), len(COLUMNS)), dtype=np.float64)
+    for i, col in enumerate(COLUMNS):
+        arr = np.asarray(result[col])
+        if arr.dtype.kind == "M":
+            arr = arr.astype("datetime64[ms]").astype(np.int64)
+        out[:, i] = arr.astype(np.float64)
 
     elapsed = time.perf_counter() - t0
-
-    n_rows = len(result["ts"])
-    n_cols = 1 + len(columns)
-    out = np.empty((n_rows, n_cols), dtype=np.float64)
-
-    ts_raw = result["ts"]
-    if hasattr(ts_raw, "dtype") and ts_raw.dtype.kind == "M":
-        out[:, 0] = ts_raw.astype("datetime64[ms]").astype(np.float64)
+    if out.shape[0] > 0:
+        first = datetime.fromtimestamp(out[0, 0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M")
+        last = datetime.fromtimestamp(out[-1, 0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M")
+        print(f"[{asset}] loaded {out.shape} candles {first} .. {last} ({elapsed:.2f}s)")
     else:
-        out[:, 0] = np.asarray(ts_raw, dtype=np.float64)
-
-    for i, col in enumerate(columns, start=1):
-        out[:, i] = np.asarray(result[col], dtype=np.float64)
-
-    col_labels = ["ts"] + list(columns)
-    col_index = ",".join(f"{name}:{i}" for i, name in enumerate(col_labels))
-    cache_tag = f" [cached:{cached}]" if cached else f" [saved:{Path.cwd()/'data'/cache_file}]"
-
-    if n_rows > 0:
-        first_dt = datetime.fromtimestamp(out[0, 0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-        last_dt = datetime.fromtimestamp(out[-1, 0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-        print(f"{out.shape} {first_dt} {last_dt} {elapsed:.2f}s [{col_index}]{cache_tag}")
-    else:
-        print(f"{out.shape} - - {elapsed:.2f}s [{col_index}]{cache_tag}")
-
+        print(f"[{asset}] loaded {out.shape} candles ({elapsed:.2f}s)")
     return out

@@ -2,6 +2,8 @@
 
 This document defines the mandatory caching rules that all data loading functions and modules must follow, and the pre-load pattern that AI Agents must implement when asked to load data as part of building a notebook or script.
 
+> **Candle data:** do not implement a custom pre-load for 1-minute candles. Use `packages/candle_loader` (`local_cache` / `load_candles`) — it already implements this convention. See `agents/packages/candle_loader.md`.
+
 ---
 
 ## Rule 1 — Always Check Local Cache Before Connecting to a Data Store
