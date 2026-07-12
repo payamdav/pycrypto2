@@ -1,0 +1,8 @@
+numpy
+pandas
+pyarrow
+numba
+duckdb
+scikit-learn
+lightgbm
+catboost
