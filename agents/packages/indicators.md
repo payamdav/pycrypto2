@@ -5,7 +5,7 @@ A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion
 ```
 
 Individual imports:
@@ -20,6 +20,7 @@ from packages.indicators.rolling_robust_z_score import rolling_robust_z_score
 from packages.indicators.rolling_robust_z_score import rolling_median_iqr
 from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 from packages.indicators.rolling_vwap import rolling_vwap
+from packages.indicators.motion import motion
 ```
 
 ## Conventions
@@ -139,11 +140,26 @@ out = rolling_vwap(quotes, volumes, window=60)
 
 ---
 
+### `motion(position, window=60)`
+Velocity, acceleration, jerk of a 1D position series as a 3-column array.
+
+- **Output:** shape `(n, 3)`, `dtype=float64`. `out[:, 0]` = velocity, `out[:, 1]` = acceleration, `out[:, 2]` = jerk.
+- **Formula:** with `step = max(window-1, 1)`, each stage `k = 1..3` is the per-step endpoint difference of the previous stage: `x[i] = (prev[i] - prev[i-step]) / step`, valid from `i = k*step`. Look-back only — no future leak.
+- **Backfill:** per column, indices before its first valid index get the first valid value; a column with no valid index stays all `0.0`.
+- `window == 1` means exact one-step differences. Empty input returns shape `(0, 3)`.
+
+```python
+out = motion(prices, window=60)
+vel, acc, jerk = out[:, 0], out[:, 1], out[:, 2]
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
@@ -159,4 +175,5 @@ rzs_out   = rolling_robust_z_score(prices, window=60)
 rmi_out   = rolling_median_iqr(prices, window=60)   # shape (200, 2)
 rms_out   = rolling_mean_stddev(prices, window=60)  # shape (200, 2)
 rv_out    = rolling_vwap(quotes, volume, window=20)
+mot_out   = motion(prices, window=20)               # shape (200, 3)
 ```
