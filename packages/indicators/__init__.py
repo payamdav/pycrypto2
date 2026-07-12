@@ -8,3 +8,6 @@ from packages.indicators.rolling_robust_z_score import rolling_median_iqr
 from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 from packages.indicators.rolling_vwap import rolling_vwap
 from packages.indicators.motion import motion
+from packages.indicators.motion import calculate_market_kinematics
+from packages.indicators.motion import total_speed
+from packages.indicators.motion import kaufman_er

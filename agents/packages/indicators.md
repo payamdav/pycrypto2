@@ -1,11 +1,11 @@
 # indicators
 
-A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy arrays. All functions are `@njit(inline='always')` — they compile on first call and can be inlined into larger Numba kernels.
+A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy arrays. All functions are `@njit(inline='always')` — they compile on first call and can be inlined into larger Numba kernels. Exception: `calculate_market_kinematics` (see its entry).
 
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er
 ```
 
 Individual imports:
@@ -21,6 +21,9 @@ from packages.indicators.rolling_robust_z_score import rolling_median_iqr
 from packages.indicators.rolling_mean_stddev import rolling_mean_stddev
 from packages.indicators.rolling_vwap import rolling_vwap
 from packages.indicators.motion import motion
+from packages.indicators.motion import calculate_market_kinematics
+from packages.indicators.motion import total_speed
+from packages.indicators.motion import kaufman_er
 ```
 
 ## Conventions
@@ -155,11 +158,44 @@ vel, acc, jerk = out[:, 0], out[:, 1], out[:, 2]
 
 ---
 
+### `calculate_market_kinematics(prices, window_size=60)`
+Rolling cubic-polynomial (OLS) kinematics. Fits `y = c0 + c1·t + c2·t² + c3·t³` over each look-back window and evaluates derivatives at the leading edge (current index).
+
+- **Output:** shape `(n, 7)`, `dtype=float64`. Columns: `0` velocity, `1` acceleration, `2` jerk, `3..6` raw coefficients `c0..c3`.
+- **Valid from** `i = window_size - 1`; earlier indices are backfilled with the first valid row.
+- `window_size` must be `>= 4` (cubic fit) — raises `ValueError` otherwise.
+- **Not `@njit` itself** (builds the hat matrix with `np.linalg`); the rolling core loop is JIT compiled. Cannot be inlined into other Numba kernels — call `_rolling_kinematics_core(prices, H, window_size)` with a precomputed `H` for that.
+
+```python
+kin = calculate_market_kinematics(prices, window_size=60)  # shape (n, 7)
+vel, acc, jerk = kin[:, 0], kin[:, 1], kin[:, 2]
+```
+
+---
+
+### `total_speed(position, window=60)`
+Average total path speed over a rolling look-back window. With `step = max(window-1, 1)`, `out[i] = sum(|position[j] - position[j-1]|, j = i-step+1..i) / step` — total absolute distance travelled in the window divided by elapsed steps. Valid from `i = step`; earlier indices are backfilled with `out[step]`. Output shape `(n,)`.
+
+```python
+out = total_speed(prices, window=60)
+```
+
+---
+
+### `kaufman_er(position, window=60)`
+Kaufman's Efficiency Ratio: `abs(velocity) / total_speed`, an oscillator in `[0, 1]`. Velocity is `motion(position, window)[:, 0]` (net displacement per step); total_speed is path distance per step over the same window — so the ratio is |net move| / total distance: `1` for a perfectly straight move, near `0` for pure chop. `out[i] = 0.0` where `total_speed[i] == 0`. Backfill comes from the backfilled inputs. Output shape `(n,)`.
+
+```python
+er = kaufman_er(prices, window=60)
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
@@ -176,4 +212,7 @@ rmi_out   = rolling_median_iqr(prices, window=60)   # shape (200, 2)
 rms_out   = rolling_mean_stddev(prices, window=60)  # shape (200, 2)
 rv_out    = rolling_vwap(quotes, volume, window=20)
 mot_out   = motion(prices, window=20)               # shape (200, 3)
+kin_out   = calculate_market_kinematics(prices, window_size=20)  # shape (200, 7)
+tsp_out   = total_speed(prices, window=20)
+er_out    = kaufman_er(prices, window=20)           # oscillator in [0, 1]
 ```
