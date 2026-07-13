@@ -7,20 +7,24 @@ class StudyConfig:
     asset: str = "btcusdt"
     start_date: str = "2024-01-01"
     stop_date: str = "2025-12-31"
-    lookback_windows: list[int] = field(default_factory=lambda: [10, 20, 30, 60, 120, 240])
+    lookback_windows: list[int] = field(default_factory=lambda: [5, 10, 15, 60])
     forward_horizons: list[int] = field(default_factory=lambda: [60, 120, 180, 240])
-    bps_multiplier: float = 0.0030
-    cv_splits: int = 5
-    dataset_output_path: str = "data/processed/kinematic_study_dataset.parquet"
-    oof_output_path: str = "data/processed/kinematic_oof_predictions.parquet"
-    metrics_output_path: str = "scripts/studies/polynomial_kinematic_ml/metrics.json"
-    classification_threshold: float = 0.5
+    bps_multiplier: float = 0.0005
+    train_fraction: float = 0.8
+    dataset_output_path: str = "data/polynomial_kinematic_ml/dataset.parquet"
+    predictions_output_path: str = "data/polynomial_kinematic_ml/validation_predictions.parquet"
+    metrics_output_path: str = "data/polynomial_kinematic_ml/metrics.json"
+    columns_output_path: str = "data/polynomial_kinematic_ml/columns.json"
+    classification_threshold: float = 0.50
     random_state: int = 42
+    lgbm_enabled: bool = True
+    catboost_enabled: bool = False
+    elasticnet_enabled: bool = False
     lgbm_params: dict = field(default_factory=lambda: {
-        "max_depth": 4,
-        "num_leaves": 15,
-        "learning_rate": 0.03,
-        "n_estimators": 400,
+        "max_depth": 80,
+        "num_leaves": 150,
+        "learning_rate": 0.003,
+        "n_estimators": 800,
         "verbosity": -1,
     })
     catboost_params: dict = field(default_factory=lambda: {

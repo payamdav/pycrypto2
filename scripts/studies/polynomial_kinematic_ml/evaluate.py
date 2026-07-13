@@ -1,4 +1,4 @@
-"""Precision-focused metrics matrix over OOF predictions: stdout markdown + metrics.json."""
+"""Precision-focused metrics matrix over validation predictions: stdout markdown + metrics.json."""
 import json
 import os
 import sys
@@ -16,18 +16,21 @@ from scripts.studies.polynomial_kinematic_ml.config import CONFIG
 
 
 def main():
-    oof = pd.read_parquet(REPO_ROOT / CONFIG.oof_output_path)
+    predictions = pd.read_parquet(REPO_ROOT / CONFIG.predictions_output_path)
+    columns_meta = json.loads((REPO_ROOT / CONFIG.columns_output_path).read_text())
+    active_labels = {c["name"] for c in columns_meta if c["role"] == "label" and c["active"]}
+    predictions = predictions[predictions["label"].isin(active_labels)]
     threshold = CONFIG.classification_threshold
 
     records = []
-    for (model_name, horizon), g in oof.groupby(["model", "horizon"]):
+    for (model_name, label_name), g in predictions.groupby(["model", "label"]):
         y_true = g["y_true"].to_numpy()
         y_prob = g["y_prob"].to_numpy()
         y_pred = (y_prob >= threshold).astype(np.uint8)
         auc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else float("nan")
         records.append({
             "model": model_name,
-            "horizon": int(horizon),
+            "label": label_name,
             "precision": float(precision_score(y_true, y_pred, pos_label=1, zero_division=0)),
             "recall": float(recall_score(y_true, y_pred, pos_label=1, zero_division=0)),
             "f1": float(f1_score(y_true, y_pred, pos_label=1, zero_division=0)),
@@ -35,14 +38,14 @@ def main():
             "prevalence": float(y_true.mean()),
             "n": int(len(g)),
         })
-    records.sort(key=lambda r: (r["model"], r["horizon"]))
+    records.sort(key=lambda r: (r["model"], r["label"]))
 
     print("True-class Precision is the headline metric: low accuracy is acceptable if "
           "Precision is high when the model flags True.\n")
-    print("| model      | horizon | precision | recall | f1     | roc_auc | prevalence |      n |")
-    print("|------------|---------|-----------|--------|--------|---------|------------|--------|")
+    print("| model      | label        | precision | recall | f1     | roc_auc | prevalence |      n |")
+    print("|------------|--------------|-----------|--------|--------|---------|------------|--------|")
     for r in records:
-        print(f"| {r['model']:<10} | {r['horizon']:>7} | {r['precision']:>9.4f} "
+        print(f"| {r['model']:<10} | {r['label']:<12} | {r['precision']:>9.4f} "
               f"| {r['recall']:>6.4f} | {r['f1']:>6.4f} | {r['roc_auc']:>7.4f} "
               f"| {r['prevalence']:>10.4f} | {r['n']:>6} |")
 

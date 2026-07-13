@@ -22,3 +22,19 @@ def get_purged_embargoed_splits(n_samples: int, n_splits: int, purge: int, embar
         assert train_idx.size > 0, f"fold [{v0},{v1}] has an empty train set"
         assert val_idx.size > 0, f"fold [{v0},{v1}] has an empty val set"
         yield train_idx, val_idx
+
+
+def get_holdout_split(n_samples: int, train_fraction: float, purge: int, embargo: int):
+    """Chronological holdout: validate on the last (1 - train_fraction) block, purge
+    the gap before it (and embargo after, vacuous here). Returns (train_idx, val_idx).
+    """
+    v0 = int(n_samples * train_fraction)
+    v1 = n_samples - 1
+
+    idx = np.arange(n_samples)
+    val_idx = idx[v0:v1 + 1]
+    train_mask = (idx < v0 - purge) | (idx > v1 + embargo)
+    train_idx = idx[train_mask]
+    assert train_idx.size > 0, "holdout split has an empty train set"
+    assert val_idx.size > 0, "holdout split has an empty val set"
+    return train_idx, val_idx

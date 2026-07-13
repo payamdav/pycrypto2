@@ -1,4 +1,5 @@
-"""Build the kinematic-features + horizon-labels dataset parquet."""
+"""Build the kinematic-features + horizon-labels dataset parquet, plus columns.json."""
+import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -57,6 +58,35 @@ def _labels_for_horizon(vwap: np.ndarray, horizon: int, bps_multiplier: float) -
     return labels
 
 
+def _column_role(name: str) -> str:
+    if name == "ts":
+        return "meta"
+    if name.startswith("label_"):
+        return "label"
+    return "feature"
+
+
+def _write_columns_json(column_names: list, out_path: Path) -> None:
+    """One-line-per-column columns.json. Carries over 'active' by name from an
+    existing file (new names default True, vanished names dropped, index rewritten);
+    any read/parse failure falls back to fresh defaults."""
+    existing_active = {}
+    if out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text())
+            existing_active = {e["name"]: bool(e["active"]) for e in existing}
+        except Exception:
+            existing_active = {}
+
+    entries = [
+        {"index": i, "name": name, "role": _column_role(name),
+         "active": existing_active.get(name, True)}
+        for i, name in enumerate(column_names)
+    ]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("[\n" + ",\n".join(json.dumps(e) for e in entries) + "\n]\n")
+
+
 def main():
     lookback_max = max(CONFIG.lookback_windows)
     horizon_max = max(CONFIG.forward_horizons)
@@ -78,6 +108,7 @@ def main():
     bad = ~np.isfinite(vwap)
     vwap[bad] = close[bad]
     vwap = np.ascontiguousarray(vwap, dtype=np.float64)
+    n = len(vwap)
 
     columns = {"ts": data[:, 0].astype(np.int64)}
     for w in CONFIG.lookback_windows:
@@ -85,10 +116,14 @@ def main():
         columns[f"vel_w{w}"] = kin[:, 0]
         columns[f"acc_w{w}"] = kin[:, 1]
         columns[f"jerk_w{w}"] = kin[:, 2]
-    for h in CONFIG.forward_horizons:
-        columns[f"label_h{h}"] = _labels_for_horizon(vwap, h, CONFIG.bps_multiplier)
 
-    n = len(vwap)
+    label_any = np.zeros(n, dtype=np.uint8)
+    for h in CONFIG.forward_horizons:
+        label_h = _labels_for_horizon(vwap, h, CONFIG.bps_multiplier)
+        columns[f"label_h{h}"] = label_h
+        label_any |= label_h
+    columns["label_any"] = label_any  # OR of all horizon labels; always last column
+
     t_min = lookback_max - 1
     t_max = n - 1 - horizon_max
     pos_mask = np.zeros(n, dtype=bool)
@@ -104,11 +139,16 @@ def main():
     df = pd.DataFrame(columns).loc[keep].reset_index(drop=True)
     for h in CONFIG.forward_horizons:
         df[f"label_h{h}"] = df[f"label_h{h}"].astype(np.uint8)
+    df["label_any"] = df["label_any"].astype(np.uint8)
 
     out_path = REPO_ROOT / CONFIG.dataset_output_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out_path, index=False)
     print(f"dataset written: {out_path} shape={df.shape}")
+
+    columns_path = REPO_ROOT / CONFIG.columns_output_path
+    _write_columns_json(list(df.columns), columns_path)
+    print(f"columns written: {columns_path}")
 
 
 if __name__ == "__main__":
