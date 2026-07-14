@@ -11,3 +11,5 @@ from packages.indicators.motion import motion
 from packages.indicators.motion import calculate_market_kinematics
 from packages.indicators.motion import total_speed
 from packages.indicators.motion import kaufman_er
+from packages.indicators.linreg_slope import linreg_slope
+from packages.indicators.volume_imbalance import volume_imbalance

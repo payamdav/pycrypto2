@@ -5,7 +5,7 @@ A collection of Numba-JIT compiled technical indicators that operate on 1D NumPy
 ## Import
 
 ```python
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er, linreg_slope, volume_imbalance
 ```
 
 Individual imports:
@@ -24,6 +24,8 @@ from packages.indicators.motion import motion
 from packages.indicators.motion import calculate_market_kinematics
 from packages.indicators.motion import total_speed
 from packages.indicators.motion import kaufman_er
+from packages.indicators.linreg_slope import linreg_slope
+from packages.indicators.volume_imbalance import volume_imbalance
 ```
 
 ## Conventions
@@ -191,16 +193,41 @@ er = kaufman_er(prices, window=60)
 
 ---
 
+### `linreg_slope(array, window=60)`
+Rolling OLS slope of `array` against `x = 0..window-1` (current item = last x, raw units: array-units per candle).
+O(n) via incremental running sums `S1 = Σy`, `Sxy = Σ k·y` (k = local index in window); slide identity:
+`Sxy ← Sxy − S1 + y_out + (window−1)·y_in`, then `S1 ← S1 − y_out + y_in`.
+Valid from `i = window-1`; indices `< window-1` backfilled with `output[window-1]`. `n < window` returns all `0.0`.
+
+```python
+slope = linreg_slope(prices, window=60)
+rel_slope = slope / prices  # per-candle fractional change
+```
+
+---
+
+### `volume_imbalance(vb, vs, window=60)`
+Rolling volume imbalance: `(Σvb − Σvs) / (Σvb + Σvs)` over the window; `0.0` where the denominator is `0`.
+O(n) via incremental running sums of `vb` and `vs`. Valid from `i = window-1`; indices `< window-1` backfilled
+with `output[window-1]`. `n < window` returns all `0.0`.
+
+```python
+imb = volume_imbalance(buy_volume, sell_volume, window=60)  # in [-1, 1]
+```
+
+---
+
 ## Usage Example
 
 ```python
 import numpy as np
-from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er
+from packages.indicators import ma, wma, vwma, rsi_1_1, stddev, rolling_robust_z_score, rolling_median_iqr, rolling_mean_stddev, rolling_vwap, motion, calculate_market_kinematics, total_speed, kaufman_er, linreg_slope, volume_imbalance
 
 prices = np.random.randn(200).astype(np.float64).cumsum() + 100.0
 volume = np.random.rand(200).astype(np.float64) * 1000.0
 quotes = prices * volume
 weights = np.arange(1, 21, dtype=np.float64)  # length must equal window
+buy_vol, sell_vol = volume * 0.5, volume * 0.5
 
 ma_out    = ma(prices, window=20)
 wma_out   = wma(prices, weights, window=20)
@@ -215,4 +242,6 @@ mot_out   = motion(prices, window=20)               # shape (200, 3)
 kin_out   = calculate_market_kinematics(prices, window_size=20)  # shape (200, 7)
 tsp_out   = total_speed(prices, window=20)
 er_out    = kaufman_er(prices, window=20)           # oscillator in [0, 1]
+slope_out = linreg_slope(prices, window=20)
+imb_out   = volume_imbalance(buy_vol, sell_vol, window=20)  # in [-1, 1]
 ```

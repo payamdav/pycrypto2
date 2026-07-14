@@ -1,0 +1,11 @@
+{
+  "assets": ["btcusdt"],
+  "date_from": "2024-01-01 00:00:00",
+  "date_to": "2026-06-30 23:59:00",
+  "slope_windows": [10080, 1440, 240, 60],
+  "imbalance_windows": [10080, 1440, 240, 60],
+  "label_windows": [60, 120, 180, 240],
+  "l_slopes_threshold": 0.00001,
+  "draw_from": "2026-04-15 00:00:00",
+  "draw_to": "2026-04-16 00:00:00"
+}
