@@ -54,12 +54,20 @@ Rule: When instructed to create a notebook, determine its use case and place it 
 Purpose: Contains standalone scripts that perform specific tasks and should be preserved.
 
 Sub-folder conventions:
-- `scripts/studies/` — scripts created for learning, research, or study purposes.
+- `scripts/studies/` — scripts created for learning, research, or study purposes. Each strategy study lives in its own sub-folder `scripts/studies/<study_name>/` and follows `agents/general/strategy_study_guidelines.md`.
 - `scripts/tests/` — test scripts.
 - `scripts/tools/` — utility/tool scripts.
 - Additional sub-folders may be added when explicitly mentioned.
 
 Rule: When instructed to create a script, place it in this folder or the relevant sub-folder.
+
+---
+
+## @/data/
+
+Purpose: Git-ignored runtime data — downloaded candle caches and per-execution study files. Never commit anything here; no source code lives here.
+
+Structure: study execution files go in `data/<study_name>/<tag>/` — see `agents/general/strategy_study_guidelines.md`.
 
 ---
 
@@ -87,6 +95,7 @@ When you are instructed to create a file **without** an explicit filename or pat
 | Create a notebook for study/research | `@/notebooks/studies/<meaningful_name>.ipynb` |
 | Create a reusable library/package | `@/packages/<meaningful_name>/` |
 | Create a script or tool | `@/scripts/<sub_folder>/<meaningful_name>.py` |
+| Build a strategy study | `@/scripts/studies/<study_name>/` per `agents/general/strategy_study_guidelines.md` |
 | Create instructions for another agent | `@/ai_chats/<meaningful_name>.md` |
 | Define a general rule or specification | `@/agents/<category>/<meaningful_name>.md` |
 | Create anything related to a specific strategy | `@/strategies/<strategy_name>/` |

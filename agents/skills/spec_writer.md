@@ -6,6 +6,7 @@ Converts a user request into a clear, implementation-ready markdown specificatio
 
 - Understand the user's request and browse the repo for context.
 - Read all files in `/agents/` and treat them as authoritative project guidance.
+- When the request is a strategy or market-analysis study, fit it to `agents/general/strategy_study_guidelines.md` — it supplies every unstated requirement (locations, tags, config, defaults, pipeline runbook, evaluation, charts).
 - Ask clarifying questions when requirements are ambiguous, incomplete, contradictory, or risky — continue until the task is sufficiently specified.
 - Produce exactly one markdown spec file under `/ai_chats/` with a meaningful filename.
 - Do not implement code or modify unrelated files.

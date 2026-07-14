@@ -134,7 +134,7 @@ one pass and write each into its own `output`-shaped array.
 
 - Default language is **Python + numpy**. Use `np.float64` arrays unless stated otherwise.
 - When possible, JIT the core loop with **numba** `@nb.njit` for best performance, matching
-  the conventions in `agents/general/indicators.md` (explicit `for` loops inside jitted
+  the conventions in `agents/packages/indicators.md` (explicit `for` loops inside jitted
   functions; no numpy high-level calls inside `@nb.njit`).
 - Pre-allocate `output` with length `count` (`np.zeros(count, dtype=np.float64)`).
 - Validate that `arr` has at least `count * step` items in the anchored direction.

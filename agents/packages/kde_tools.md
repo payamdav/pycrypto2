@@ -262,7 +262,7 @@ normalized-price units.
 - **Jitted (explicit loops, clear speedups):** `weighted_histogram`, `convolve_same`,
   and the kernel-building core behind `make_kernel`. They run over per-observation
   arrays and benefit from jitting across many sliding windows. Per
-  `agents/general/indicators.md`, they use explicit `for` loops — no `np.histogram`,
+  `agents/packages/indicators.md`, they use explicit `for` loops — no `np.histogram`,
   `np.convolve`, `np.maximum`, `np.argsort`, etc. inside `@nb.njit` — and return newly
   allocated `np.float64` arrays.
 - **Kept in scipy (not reimplemented):** `find_peaks` and `peak_prominences`. Their

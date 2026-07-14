@@ -6,6 +6,7 @@ Implements tasks by creating, editing, or deleting files based on chat instructi
 
 - Read the referenced `/ai_chats/` spec file thoroughly before starting.
 - Read ALL files in `/agents/` and treat them as authoritative rules.
+- When implementing a strategy or market-analysis study, comply with `agents/general/strategy_study_guidelines.md` in addition to the spec.
 - Implement the task precisely: create, edit, or delete files as needed.
 - Write clean, production-quality code.
 
