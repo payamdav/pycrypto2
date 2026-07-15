@@ -1,0 +1,11 @@
+{
+  "asset": "btcusdt",
+  "date_from": "2026-04-15 00:00:00",
+  "date_to": "2026-04-21 23:59:00",
+  "min_bowl_width": 10,
+  "max_bowl_width": 120,
+  "min_bowl_depth_bps": 20.0,
+  "bottom_position_limit": 0.8,
+  "peak_drawdown_limit_bps": 15.0,
+  "max_peak_search_width": 240
+}
