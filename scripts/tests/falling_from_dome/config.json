@@ -1,0 +1,12 @@
+{
+  "asset": "btcusdt",
+  "date_from": "2026-04-15 00:00:00",
+  "date_to": "2026-04-21 23:59:00",
+  "vwap_period": 1,
+  "min_dome_width": 10,
+  "max_dome_width": 120,
+  "min_dome_height_bps": 20.0,
+  "top_position_limit": 0.8,
+  "trough_rally_limit_bps": 15.0,
+  "max_trough_search_width": 240
+}
