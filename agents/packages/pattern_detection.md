@@ -58,11 +58,11 @@ All indices are absolute positions in the `prices` array passed in. `SCAN_COLUMN
 
 ### Re-detection and deduplication (read before counting or plotting bowls)
 
-**The package never deduplicates.** A single bowl typically re-triggers at many consecutive anchors while price keeps rising out of it — the left part of the bowl (`left_rim_idx`, `left_wall_peak_idx`, `bottom_idx`) stays fixed across those rows, while `right_rim_idx` (the anchor) advances. All re-detections of one physical bowl share the same `left_wall_peak_idx`. Callers that want **distinct bowls** (for counting or drawing) must group scan rows by column 6 and keep one row per group — the first (smallest `right_rim_idx`, i.e. earliest row since rows are ascending by anchor) is the conventional choice:
+**The package never deduplicates.** A single bowl typically re-triggers at many consecutive anchors while price keeps rising out of it — the left part of the bowl (`left_rim_idx`, `left_wall_peak_idx`, `bottom_idx`) stays fixed across those rows, while `right_rim_idx` (the anchor) advances. Callers that want **distinct bowls** (for counting or drawing) must group scan rows by a stable identity column — `bottom_idx` (col 2) or `left_wall_peak_idx` (col 6); `bottom_idx` counts two dips sharing one crest as two bowls and is what `scripts/tests/rising_from_bowl` uses — keeping one row per group, conventionally the first (smallest `right_rim_idx`, i.e. earliest row since rows are ascending by anchor):
 
 ```python
-peak_idx = detections[:, 6]
-uniq, first_pos, counts = np.unique(peak_idx, return_index=True, return_counts=True)
+bottom_idx = detections[:, SCAN_COLUMNS.index("bottom_idx")]
+uniq, first_pos, counts = np.unique(bottom_idx, return_index=True, return_counts=True)
 distinct_bowls = detections[first_pos]   # first detection of each bowl
 detections_per_bowl = counts             # how many times each bowl re-triggered
 ```

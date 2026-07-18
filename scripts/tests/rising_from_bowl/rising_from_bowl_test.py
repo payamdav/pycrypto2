@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 os.chdir(REPO_ROOT)
 
 from packages.candle_loader import load_candles
+from packages.indicators.rolling_vwap import rolling_vwap
 from packages.pattern_detection import rising_from_bowl_scan, SCAN_COLUMNS
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,22 +37,39 @@ def to_ms(dt_str: str) -> int:
     return int(datetime.strptime(dt_str, DT_FMT).replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 
-def sanitize_vwap(data: np.ndarray) -> np.ndarray:
-    """Replace non-finite / zero-volume vwap rows with the previous valid value;
-    leading bad rows get the first valid value."""
-    vwap = data[:, 8].astype(np.float64)
-    bad = ~np.isfinite(vwap) | (data[:, 5] == 0.0)
+def sanitize_vwap(vwap: np.ndarray) -> np.ndarray:
+    """Return a copy where invalid values (nan/inf/<= 0) are replaced by the
+    previous valid value; leading invalid values get the first valid value.
+    Prints how many values were bad before correcting them."""
+    vwap = np.asarray(vwap, dtype=np.float64).copy()
+    bad = ~np.isfinite(vwap) | (vwap <= 0.0)
+    n_bad = int(bad.sum())
+    print(f"vwap: {n_bad:,} bad values (nan/inf/<=0) of {vwap.size:,}")
+    if n_bad == 0:
+        return vwap
+    if n_bad == vwap.size:
+        raise ValueError("all vwap values are invalid")
     vwap[bad] = np.nan
     return pd.Series(vwap).ffill().bfill().to_numpy()
 
 
+def compute_vwap(data: np.ndarray, period: int) -> np.ndarray:
+    """vwap series per vwap_period: 1 = candle vwap column; N>1 = rolling_vwap
+    (sum q / sum v) over the last N candles. Sanitized either way."""
+    if period == 1:
+        return sanitize_vwap(data[:, 8])
+    quotes = np.ascontiguousarray(data[:, 6])
+    volumes = np.ascontiguousarray(data[:, 5])
+    return sanitize_vwap(rolling_vwap(quotes, volumes, period))
+
+
 def dedupe_bowls(detections: np.ndarray) -> dict:
-    """Group scan rows by left_wall_peak_idx: first (earliest) detection per
-    bowl, chronologically ordered, plus a re-detection count per bowl."""
+    """Group scan rows by bottom_idx (bowl identity): first (earliest) detection
+    per bowl, chronologically ordered, plus a re-detection count per bowl."""
     if detections.shape[0] == 0:
         return {"rows": detections, "counts": np.zeros(0, dtype=np.int64)}
-    peak_idx = detections[:, COL["left_wall_peak_idx"]]
-    _, first_pos, counts = np.unique(peak_idx, return_index=True, return_counts=True)
+    bottom_idx = detections[:, COL["bottom_idx"]]
+    _, first_pos, counts = np.unique(bottom_idx, return_index=True, return_counts=True)
     order = np.argsort(first_pos)
     return {"rows": detections[first_pos[order]], "counts": counts[order]}
 
@@ -78,6 +96,8 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
 
     times = pd.to_datetime(data[:, 0], unit="ms")
     o, h, l, c = data[:, 1], data[:, 2], data[:, 3], data[:, 4]
+    vwap_period = int(cfg.get("vwap_period", 1))
+    vwap_name = "VWAP" if vwap_period == 1 else f"VWAP({vwap_period})"
 
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -86,9 +106,9 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
         decreasing=dict(line=dict(color="#c1666b"), fillcolor="#e8b9ba"),
     ))
     fig.add_trace(go.Scatter(
-        x=times, y=vwap, mode="lines", name="VWAP",
+        x=times, y=vwap, mode="lines", name=vwap_name,
         line=dict(color="#2e2e2e", width=1.3),
-        hovertemplate="%{y:,.2f}<extra>VWAP</extra>",
+        hovertemplate="%{y:,.2f}<extra>" + vwap_name + "</extra>",
     ))
 
     rows, counts = bowls["rows"], bowls["counts"]
@@ -143,7 +163,8 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
     title_params = (
         f"min_w {cfg['min_bowl_width']} max_w {cfg['max_bowl_width']} "
         f"depth {cfg['min_bowl_depth_bps']}bps pos {cfg['bottom_position_limit']} "
-        f"peak_dd {cfg['peak_drawdown_limit_bps']}bps peak_search {cfg['max_peak_search_width']}"
+        f"peak_dd {cfg['peak_drawdown_limit_bps']}bps peak_search {cfg['max_peak_search_width']} "
+        f"vwap_p {vwap_period}"
     )
     fig.update_layout(
         title=dict(
@@ -177,7 +198,10 @@ def run(cfg: dict) -> None:
     asset = cfg["asset"]
     date_from, date_to = cfg["date_from"], cfg["date_to"]
     detector_params = {k: cfg[k] for k in DETECTOR_KEYS}
-    pad_minutes = max(cfg["max_bowl_width"], cfg["max_peak_search_width"])
+    vwap_period = int(cfg.get("vwap_period", 1))
+    if vwap_period < 1:
+        raise ValueError("vwap_period must be >= 1")
+    pad_minutes = max(cfg["max_bowl_width"], cfg["max_peak_search_width"], vwap_period)
 
     t0 = time.perf_counter()
     load_from = (datetime.strptime(date_from, DT_FMT).replace(tzinfo=timezone.utc)
@@ -185,9 +209,12 @@ def run(cfg: dict) -> None:
     data = load_candles(asset, load_from, date_to)
     print(f"load candles: {data.shape[0]:,} rows  [{time.perf_counter() - t0:.3f}s]")
 
+    if vwap_period > 1:  # warm rolling_vwap jit off the clock
+        ones = np.ones(vwap_period, dtype=np.float64)
+        rolling_vwap(ones, ones, vwap_period)
     t0 = time.perf_counter()
-    vwap = sanitize_vwap(data)
-    print(f"sanitize vwap  [{time.perf_counter() - t0:.3f}s]")
+    vwap = compute_vwap(data, vwap_period)
+    print(f"vwap period {vwap_period}  [{time.perf_counter() - t0:.3f}s]")
 
     ts = data[:, 0]
     start_idx = int(np.searchsorted(ts, to_ms(date_from), side="left"))
