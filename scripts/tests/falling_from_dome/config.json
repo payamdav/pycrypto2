@@ -8,5 +8,12 @@
   "min_dome_height_bps": 20.0,
   "top_position_limit": 0.8,
   "trough_rally_limit_bps": 15.0,
-  "max_trough_search_width": 240
+  "max_trough_search_width": 240,
+  "vp_lookback": 1440,
+  "vp_bins": 200,
+  "vp_bps_range": 100.0,
+  "vp_kernel_type": "Triangular",
+  "vp_bandwidth": 5,
+  "vp_va_pct": 70.0,
+  "vp_min_poc_volume_ratio": 0.1
 }

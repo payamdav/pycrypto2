@@ -16,6 +16,7 @@ os.chdir(REPO_ROOT)
 from packages.candle_loader import load_candles
 from packages.indicators.rolling_vwap import rolling_vwap
 from packages.pattern_detection import rising_from_bowl_scan, SCAN_COLUMNS
+from packages.volume_profile import compute_kde, recursive_poc
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -25,6 +26,15 @@ DETECTOR_KEYS = (
     "min_bowl_width", "max_bowl_width", "min_bowl_depth_bps",
     "bottom_position_limit", "peak_drawdown_limit_bps", "max_peak_search_width",
 )
+VP_DEFAULTS = {
+    "vp_lookback": 1440,
+    "vp_bins": 200,
+    "vp_bps_range": 100.0,
+    "vp_kernel_type": "Triangular",
+    "vp_bandwidth": 5,
+    "vp_va_pct": 70.0,
+    "vp_min_poc_volume_ratio": 0.1,
+}
 COL = {name: idx for idx, name in enumerate(SCAN_COLUMNS)}
 
 QUALITATIVE_PALETTE = [
@@ -91,25 +101,69 @@ def print_stats(asset, date_from, date_to, n_anchors, detections, bowls) -> None
         print(f"{label:<11} mean {v.mean():.3f}  median {np.median(v):.3f}")
 
 
-def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_path: Path) -> None:
+def compute_volume_profile(data: np.ndarray, vwap: np.ndarray, start_idx: int, end_idx: int, cfg: dict) -> dict:
+    """Volume profile + recursive POC over the last vp_lookback candles of the
+    displayed range. Prints a terse summary, one line per POC (or a single
+    "no POCs found" line), and the step's elapsed time."""
+    t0 = time.perf_counter()
+    vp_cfg = {k: cfg.get(k, default) for k, default in VP_DEFAULTS.items()}
+    vp_lookback = int(vp_cfg["vp_lookback"])
+
+    vp_lo = max(start_idx, end_idx - vp_lookback)
+    vp_prices = np.ascontiguousarray(vwap[vp_lo:end_idx])
+    vp_volumes = np.ascontiguousarray(data[vp_lo:end_idx, 5])
+
+    vp = compute_kde(
+        vp_prices, vp_volumes,
+        int(vp_cfg["vp_bins"]), float(vp_cfg["vp_bps_range"]),
+        vp_cfg["vp_kernel_type"], int(vp_cfg["vp_bandwidth"]),
+    )
+    pocs = recursive_poc(
+        vp["kde"], vp["bin_centers"], vp["current_price"],
+        float(vp_cfg["vp_va_pct"]), float(vp_cfg["vp_min_poc_volume_ratio"]),
+    )
+
+    print(f"volume profile: {vp_prices.shape[0]:,} candles | current {vp['current_price']:,.2f} | "
+          f"range [{vp['range_min']:,.2f}, {vp['range_max']:,.2f}] | excluded {vp['n_excluded']:,}")
+    if pocs:
+        for p in pocs:
+            print(f"POC {p['rank']}: price {p['poc_price']:,.2f} vol {p['poc_volume']:,.3f} "
+                  f"VA [{p['val']:,.2f}, {p['vah']:,.2f}]")
+    else:
+        print("no POCs found")
+    print(f"volume profile + recursive_poc  [{time.perf_counter() - t0:.3f}s]")
+
+    return {"vp": vp, "pocs": pocs}
+
+
+def build_figure(res: dict, cfg: dict):
+    """Full chart (candles, vwap, bowls, POC lines) + POC table. No file I/O."""
     import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    data, vwap, bowls = res["data"], res["vwap"], res["bowls"]
+    start_idx, end_idx = res["start_idx"], res["end_idx"]
+    pocs = res["pocs"]
 
     times = pd.to_datetime(data[:, 0], unit="ms")
     o, h, l, c = data[:, 1], data[:, 2], data[:, 3], data[:, 4]
     vwap_period = int(cfg.get("vwap_period", 1))
     vwap_name = "VWAP" if vwap_period == 1 else f"VWAP({vwap_period})"
 
-    fig = go.Figure()
+    fig = make_subplots(
+        rows=2, cols=1, row_heights=[0.78, 0.22], vertical_spacing=0.06,
+        specs=[[{"type": "xy"}], [{"type": "table"}]],
+    )
     fig.add_trace(go.Candlestick(
         x=times, open=o, high=h, low=l, close=c, name="Candles",
         increasing=dict(line=dict(color="#4c9a6a"), fillcolor="#a9d1b6"),
         decreasing=dict(line=dict(color="#c1666b"), fillcolor="#e8b9ba"),
-    ))
+    ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=times, y=vwap, mode="lines", name=vwap_name,
         line=dict(color="#2e2e2e", width=1.3),
         hovertemplate="%{y:,.2f}<extra>" + vwap_name + "</extra>",
-    ))
+    ), row=1, col=1)
 
     rows, counts = bowls["rows"], bowls["counts"]
     for n in range(rows.shape[0]):
@@ -144,7 +198,7 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
             name=f"Bowl {n + 1} ×{det_count}", legendgroup=group,
             line=dict(color=color, width=1.6, dash="dot"),
             hovertemplate=info + "<extra></extra>",
-        ))
+        ), row=1, col=1)
 
         marker_x = [times[i], times[t_min], times[peak_idx], times[t]]
         marker_y = [vwap[i], vwap[t_min], peak_price, vwap[t]]
@@ -158,7 +212,48 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
             marker=dict(symbol=["circle-open", "circle", "star", "triangle-up"],
                         size=[9, 9, 13, 10], color=color, line=dict(width=1, color="#fcfcfb")),
             hovertext=point_hover, hoverinfo="text",
-        ))
+        ), row=1, col=1)
+
+    # --- POC horizontal lines (dashed, spanning the displayed range) ---
+    poc1_volume = pocs[0]["poc_volume"] if pocs else 0.0
+    x_span = [times[start_idx], times[end_idx - 1]]
+    for p in pocs:
+        color = QUALITATIVE_PALETTE[(p["rank"] - 1) % len(QUALITATIVE_PALETTE)]
+        pct_of_poc1 = (p["poc_volume"] / poc1_volume * 100.0) if poc1_volume > 0 else 0.0
+        hover = (
+            f"POC {p['rank']}<br>price {p['poc_price']:,.2f}<br>"
+            f"kde volume {p['poc_volume']:,.3f} ({pct_of_poc1:.1f}% of POC 1)<br>"
+            f"VA [{p['val']:,.2f}, {p['vah']:,.2f}]"
+        )
+        fig.add_trace(go.Scatter(
+            x=x_span, y=[p["poc_price"], p["poc_price"]], mode="lines",
+            name=f"POC {p['rank']}", legendgroup=f"poc{p['rank']}",
+            line=dict(color=color, width=1.6, dash="dash"),
+            hovertemplate=hover + "<extra></extra>",
+        ), row=1, col=1)
+
+    # --- POC table ---
+    if pocs:
+        ranks = [p["rank"] for p in pocs]
+        rank_colors = [QUALITATIVE_PALETTE[(r - 1) % len(QUALITATIVE_PALETTE)] for r in ranks]
+        cell_values = [
+            ranks,
+            [f"{p['poc_price']:,.2f}" for p in pocs],
+            [f"{p['poc_volume']:,.3f}" for p in pocs],
+            [f"{(p['poc_volume'] / poc1_volume * 100.0 if poc1_volume > 0 else 0.0):.1f}%" for p in pocs],
+            [f"{p['val']:,.2f}" for p in pocs],
+            [f"{p['vah']:,.2f}" for p in pocs],
+        ]
+        cell_font_colors = [rank_colors, "#52514e", "#52514e", "#52514e", "#52514e", "#52514e"]
+    else:
+        cell_values = [[], [], [], [], [], []]
+        cell_font_colors = "#52514e"
+    fig.add_trace(go.Table(
+        header=dict(values=["Rank", "Price", "KDE Volume", "% of POC 1", "VAL", "VAH"],
+                    fill_color="#eceae2", font=dict(color="#52514e", size=12), align="left"),
+        cells=dict(values=cell_values, fill_color="#fcfcfb",
+                   font=dict(color=cell_font_colors, size=12), align="left"),
+    ), row=2, col=1)
 
     title_params = (
         f"min_w {cfg['min_bowl_width']} max_w {cfg['max_bowl_width']} "
@@ -182,19 +277,22 @@ def build_chart(data: np.ndarray, vwap: np.ndarray, bowls: dict, cfg: dict, out_
         legend=dict(orientation="v", x=1.01, xanchor="left", y=1, yanchor="top",
                     font=dict(size=10), tracegroupgap=1, groupclick="togglegroup"),
         margin=dict(l=60, r=190, t=80, b=40),
-        height=800,
-        xaxis=dict(rangeslider=dict(visible=False)),
+        height=1000,
     )
     spike = dict(showspikes=True, spikemode="across", spikesnap="cursor",
                  spikecolor="#9a9990", spikethickness=1)
-    fig.update_xaxes(gridcolor="#e1e0d9", linecolor="#c3c2b7", showline=True, zeroline=False, **spike)
+    fig.update_xaxes(gridcolor="#e1e0d9", linecolor="#c3c2b7", showline=True, zeroline=False,
+                      rangeslider=dict(visible=False), row=1, col=1, **spike)
     fig.update_yaxes(gridcolor="#e1e0d9", linecolor="#c3c2b7", showline=True, zeroline=False,
-                      title_text="Price (USDT)", tickformat=",.0f", **spike)
+                      title_text="Price (USDT)", tickformat=",.0f", row=1, col=1, **spike)
 
-    fig.write_html(out_path, config={"scrollZoom": True})
+    return fig
 
 
-def run(cfg: dict) -> None:
+def analyze(cfg: dict) -> dict:
+    """Load candles, scan for bowls, dedupe, compute the volume profile +
+    recursive POC. Returns everything build_figure needs; no plotting or I/O
+    beyond load_candles' own local cache."""
     asset = cfg["asset"]
     date_from, date_to = cfg["date_from"], cfg["date_to"]
     detector_params = {k: cfg[k] for k in DETECTOR_KEYS}
@@ -238,9 +336,21 @@ def run(cfg: dict) -> None:
 
     print_stats(asset, date_from, date_to, n_anchors, detections, bowls)
 
+    vp_res = compute_volume_profile(data, vwap, start_idx, end_idx, cfg)
+
+    return {
+        "data": data, "vwap": vwap, "start_idx": start_idx, "end_idx": end_idx,
+        "bowls": bowls, "vp": vp_res["vp"], "pocs": vp_res["pocs"],
+    }
+
+
+def run(cfg: dict) -> None:
+    res = analyze(cfg)
+
     t0 = time.perf_counter()
-    out_path = SCRIPT_DIR / f"rising_from_bowl_{asset}.html"
-    build_chart(data, vwap, bowls, cfg, out_path)
+    fig = build_figure(res, cfg)
+    out_path = SCRIPT_DIR / f"rising_from_bowl_{cfg['asset']}.html"
+    fig.write_html(out_path, config={"scrollZoom": True})
     print(f"chart written: {out_path}  [{time.perf_counter() - t0:.3f}s]")
 
 
