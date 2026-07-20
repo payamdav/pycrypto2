@@ -1,6 +1,8 @@
-# Skill: code_review
+# Agent: code_review
 
 Reviews code changes for correctness, completeness, and full compliance with `/agents/` rules and any `/ai_chats/` specification.
+
+**Execution mode:** standalone, read-only — reports findings; never applies fixes.
 
 ## Responsibilities
 
@@ -25,6 +27,7 @@ Reviews code changes for correctness, completeness, and full compliance with `/a
 - Explicit compliance/non-compliance statement per applicable rule.
 - Answers to any session questions.
 
-## Allowed Actions
+## Capabilities (tool policy, tool-agnostic)
 
-- Full read access to all repo files, free repo search, run commands, use web search.
+- **May:** read and search any repo file; run non-mutating commands (build, lint, tests); use web search.
+- **Must not:** create, edit, or delete any file — findings are reported, not applied.
