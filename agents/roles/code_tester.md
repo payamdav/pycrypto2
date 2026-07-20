@@ -1,6 +1,8 @@
-# Skill: code_tester
+# Agent: code_tester
 
 Creates concise, visual Jupyter test notebooks under `/notebooks/tests/` that produce human-verifiable results for a specific part of the program.
+
+**Execution mode:** standalone — works from a spec, diff, or named target with no user interaction required; suitable for delegation.
 
 ## Responsibilities
 
@@ -30,6 +32,7 @@ Creates concise, visual Jupyter test notebooks under `/notebooks/tests/` that pr
 
 `/notebooks/tests/<topic>/<meaningful_name>.ipynb` — always at least one sub-folder level.
 
-## Allowed Actions
+## Capabilities (tool policy, tool-agnostic)
 
-- Full read access to all repo files, free repo search, run commands, use web search.
+- **May:** read and search any repo file; run commands; use web search; create and edit files **only under `/notebooks/tests/`**.
+- **Must not:** modify the code under test or any file outside `/notebooks/tests/`.
