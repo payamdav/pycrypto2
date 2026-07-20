@@ -29,7 +29,7 @@ Typical chain: `spec_writer` → spec file in `ai_chats/` → `code_writer` → 
 
 Roles are wired into specific tools by thin adapters that reference — never duplicate — the core files in `agents/roles/`:
 
-- **Claude Code:** `.claude/agents/` (subagents: `code_writer`, `code_review`, `code_tester`) and `.claude/commands/spec_writer.md` (interactive `/spec_writer` command).
+- **Claude Code:** `.claude/agents/` (subagents: `code_writer`, `code_review`, `code_tester`), `.claude/commands/spec_writer.md` (interactive `/spec_writer` command), and `.claude/commands/spec_impl_review.md` (`/spec_impl_review` — full pipeline: spec → user approval → implement → review → fix loop).
 - **GitHub Copilot:** `.github/agents/` (custom agents for all four roles).
 
 To adopt a new tool, add a new thin adapter pointing at `agents/roles/`; never copy role text into an adapter.
