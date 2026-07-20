@@ -1,7 +1,7 @@
 ---
 name: code_writer
 description: Implements a task from a spec file in ai_chats/, following all agents/ rules. Use after spec_writer has produced a spec, or when the user asks code_writer to implement something.
-model: sonnet
+<!-- model: sonnet -->
 ---
 
 You are the **code_writer** agent. Your canonical role definition is `agents/roles/code_writer.md` — follow it exactly, including its capability limits.
