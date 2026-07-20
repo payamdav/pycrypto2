@@ -65,29 +65,12 @@ QUALITATIVE_PALETTE = [
     "#5b7fbd", "#8a8a3c", "#c15a9e", "#3f9e8f", "#b5533c",
 ]
 
-# Hover-linked VAL/VAH visibility: `pocPairs` maps rank -> [val_trace_idx, vah_trace_idx],
-# filled in by build_figure via string .replace (not str.format, so JS braces stay literal).
-# `{plot_id}` is plotly's own write_html placeholder and must reach write_html unresolved.
-POC_HOVER_JS_TEMPLATE = """
-(function() {
-    var gd = document.getElementById('{plot_id}');
-    var pocPairs = __PAIR_JSON__;
-    function setVis(rank, vis) {
-        var pair = pocPairs[rank];
-        if (pair) { Plotly.restyle(gd, {visible: vis}, pair); }
-    }
-    gd.on('plotly_hover', function(evt) {
-        var pt = evt.points && evt.points[0];
-        var meta = pt && pt.data && pt.data.meta;
-        if (meta && meta.poc_rank !== undefined) { setVis(String(meta.poc_rank), true); }
-    });
-    gd.on('plotly_unhover', function(evt) {
-        var pt = evt.points && evt.points[0];
-        var meta = pt && pt.data && pt.data.meta;
-        if (meta && meta.poc_rank !== undefined) { setVis(String(meta.poc_rank), false); }
-    });
-})();
-"""
+# VAL/VAH visibility: hover-linked toggling was tried (Plotly.restyle from a
+# plotly_hover listener) but proved unreliable in practice — a POC sits where
+# price consolidated the most, so almost everywhere along the line a candle
+# occupies the same price and wins Plotly's "closest" hover contest, making
+# the POC trace itself nearly impossible to hover. Per spec fallback: VAL/VAH
+# are always visible instead, toggled together with their POC via legendgroup.
 
 
 def to_ms(dt_str: str) -> int:
@@ -337,7 +320,6 @@ def build_figure(res: dict, cfg: dict):
     # --- POC lines (dashed) + VAL/VAH lines (thinner, hover-linked visibility) ---
     poc1_volume = pocs[0]["poc_volume"] if pocs else 0.0
     x_span = [times[start_idx], times[len(data) - 1]]  # reaches through look-ahead
-    poc_pairs = {}
     for p in pocs:
         color = QUALITATIVE_PALETTE[(p["rank"] - 1) % len(QUALITATIVE_PALETTE)]
         pct_of_poc1 = (p["poc_volume"] / poc1_volume * 100.0) if poc1_volume > 0 else 0.0
@@ -352,22 +334,20 @@ def build_figure(res: dict, cfg: dict):
             name=f"POC {p['rank']}", legendgroup=f"poc{p['rank']}",
             line=dict(color=color, width=1.6, dash="dash"),
             hovertemplate=hover + "<extra></extra>",
-            meta={"poc_rank": p["rank"]},
         ), row=1, col=1)
 
-        val_idx = add_trace(go.Scatter(
-            x=x_span, y=[p["val"], p["val"]], mode="lines", visible=False,
+        add_trace(go.Scatter(
+            x=x_span, y=[p["val"], p["val"]], mode="lines",
             name=f"POC {p['rank']} VAL", legendgroup=f"poc{p['rank']}", showlegend=False,
             line=dict(color=color, width=0.8, dash="dot"),
             hovertemplate=f"POC {p['rank']} VAL {p['val']:,.2f}<extra></extra>",
         ), row=1, col=1)
-        vah_idx = add_trace(go.Scatter(
-            x=x_span, y=[p["vah"], p["vah"]], mode="lines", visible=False,
+        add_trace(go.Scatter(
+            x=x_span, y=[p["vah"], p["vah"]], mode="lines",
             name=f"POC {p['rank']} VAH", legendgroup=f"poc{p['rank']}", showlegend=False,
             line=dict(color=color, width=0.8, dash="dot"),
             hovertemplate=f"POC {p['rank']} VAH {p['vah']:,.2f}<extra></extra>",
         ), row=1, col=1)
-        poc_pairs[str(p["rank"])] = [val_idx, vah_idx]
 
     # --- look-ahead boundary (chart-only; no detection/VP uses these candles) ---
     if look_ahead > 0 and end_idx < len(data):
@@ -433,9 +413,6 @@ def build_figure(res: dict, cfg: dict):
                       rangeslider=dict(visible=False), row=1, col=1, **spike)
     fig.update_yaxes(gridcolor="#e1e0d9", linecolor="#c3c2b7", showline=True, zeroline=False,
                       title_text="Price (USDT)", tickformat=",.0f", row=1, col=1, **spike)
-
-    pair_json = json.dumps(poc_pairs)
-    fig._poc_hover_post_script = POC_HOVER_JS_TEMPLATE.replace("__PAIR_JSON__", pair_json)
 
     return fig
 
@@ -535,9 +512,8 @@ def run(cfg: dict) -> None:
 
     t0 = time.perf_counter()
     fig = build_figure(res, cfg)
-    post_script = fig._poc_hover_post_script
     out_path = SCRIPT_DIR / f"bowl_and_dome_{cfg['asset']}.html"
-    fig.write_html(out_path, config={"scrollZoom": True}, post_script=post_script)
+    fig.write_html(out_path, config={"scrollZoom": True})
     print(f"chart written: {out_path}  [{time.perf_counter() - t0:.3f}s]")
 
 
