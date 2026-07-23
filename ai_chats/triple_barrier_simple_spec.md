@@ -2,7 +2,7 @@
 
 ## 1. Task Summary
 
-Create the first trader indicator, `triple_barrier_simple`, under a new `packages/traders_indicators/` package. Given a 1D price array, it labels each item with the outcome of a simulated long trade: `1.0` if price first reaches the upper barrier (take profit), `-1.0` if it first reaches the lower barrier (stop loss), `0.0` if neither is hit within the look-ahead window (time limit). Output is a 1D `float64` ndarray, same length as the input. Numba `@njit`.
+Create the first trader indicator, `triple_barrier_simple`, under a new `packages/traders_indicators/` package. Given a 1D price array, it labels each item with the outcome of a simulated long trade: `1.0` if price first reaches the upper barrier (take profit), `-1.0` if it first reaches the lower barrier (stop loss), `0.0` if neither is hit within the look-ahead window (time limit). Output is a 1D `float64` ndarray, same length as the input. Numba `@njit`. Also create a CLI test script that runs the indicator on real candle `vwap` prices and prints label counts and timing.
 
 ## 2. Background and Context
 
@@ -57,13 +57,23 @@ Barrier touch is inclusive (`>=` / `<=`). At one item the upper check runs first
 - 1D `np.float64`, length `n`, values only `{1.0, -1.0, 0.0}` — no nan, no padding; tail items with short or empty windows simply resolve by the scan rules above.
 - Empty input → empty `float64` array.
 
+### Test script
+
+- Location: `scripts/tests/triple_barrier_simple/test_triple_barrier_simple.py`, with its own `requirements.txt` (`numpy`, `numba`, plus `packages/candle_loader` deps).
+- CLI arguments: `asset` (e.g. `btcusdt`), `date_from`, `date_to` (`"YYYY-MM-DD HH:MM:SS"` UTC, formats accepted by `load_candles`) — required; `upper_barrier_bps` (default `20`), `lower_barrier_bps` (default `20`), `look_ahead` (default `240`), `next_entry` (default `True`) — optional.
+- Flow:
+  1. Load candles via `packages.candle_loader.load_candles(asset, date_from, date_to)`; price = `vwap` column (index 8), as contiguous `float64`.
+  2. Run `triple_barrier_simple(prices, upper_barrier_bps, lower_barrier_bps, look_ahead, next_entry)`.
+  3. Print: number of candles, count of `1.0`, count of `-1.0`, count of `0.0`, and the indicator's time consumption in seconds (time the indicator call; measure the second of two calls or note JIT compile is included — either way state what is measured in the print).
+- Prints: single short lines per `agents/general/rules.md` writing style.
+
 ## 5. Non-Goals / Out of Scope
 
 - No aggregate back-test metrics or helper reporting functions.
 - No commission handling (returns exit cause only; no returns/pnl output).
 - No candle-array / ecandles input variant — 1D prices only, single back-test price.
 - No short-position variant.
-- No tests or notebooks (not requested).
+- No test notebooks and no unit-test suite — only the CLI test script above.
 
 ## 6. Assumptions
 
@@ -80,6 +90,7 @@ Barrier touch is inclusive (`>=` / `<=`). At one item the upper check runs first
 4. Inclusive barrier comparison (`>=` upper → 1, `<=` lower → -1).
 5. Window exhaustion or end-of-array without a touch → `0.0`; output contains only `{1.0, -1.0, 0.0}`.
 6. `__init__.py` export and `requirements.txt` in place; behavior matches `agents/packages/traders_indicators/triple_barrier_simple.md`.
+7. Test script runs end-to-end from the CLI (e.g. `python3 scripts/tests/triple_barrier_simple/test_triple_barrier_simple.py btcusdt "2026-06-01 00:00:00" "2026-06-07 23:59:00"`), uses candle `vwap` as prices, and prints candle count, counts of `1.0` / `-1.0` / `0.0`, and indicator time consumption. Label counts sum to the candle count.
 
 ## 8. Open Questions
 
@@ -90,3 +101,4 @@ None blocking. If the look-ahead window should instead be counted from the curre
 - Keep the scan loop `O(look_ahead)` per item with early exit — no vectorized full-matrix construction.
 - `packages/__init__.py` already exists; only the new sub-package files are needed.
 - Do not modify `packages/indicators/` or any other package.
+- Verify the work by running the test script (default barriers, a real asset/date range); first run downloads the asset's candle cache via `candle_loader`.
