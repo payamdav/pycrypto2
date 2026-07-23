@@ -19,16 +19,14 @@ def str2bool(v: str) -> bool:
 
 
 def main() -> None:
-    if len(sys.argv) < 4:
-        print("usage: test_triple_barrier_simple.py <asset> <date_from> <date_to> "
-              "[upper_barrier_bps=20] [lower_barrier_bps=20] [look_ahead=240] [next_entry=True]")
-        sys.exit(1)
+    asset = "btcusdt"
+    date_from = "2024-01-01 00:00:00"
+    date_to = "2026-06-02 00:00:00"
 
-    asset, date_from, date_to = sys.argv[1], sys.argv[2], sys.argv[3]
-    upper_barrier_bps = float(sys.argv[4]) if len(sys.argv) > 4 else 20.0
-    lower_barrier_bps = float(sys.argv[5]) if len(sys.argv) > 5 else 20.0
-    look_ahead = int(sys.argv[6]) if len(sys.argv) > 6 else 240
-    next_entry = str2bool(sys.argv[7]) if len(sys.argv) > 7 else True
+    upper_barrier_bps = 20.0
+    lower_barrier_bps = 20.0
+    look_ahead = 240
+    next_entry = True
 
     data = load_candles(asset, date_from, date_to)
     prices = np.ascontiguousarray(data[:, 8])  # vwap
